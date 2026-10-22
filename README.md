@@ -91,3 +91,7 @@ docs/         Google Drive setup guide
 - **Last-writer-wins sync** per item: simple and predictable for one person on a few devices.
 
 See [KNOWN_GAPS.md](KNOWN_GAPS.md) for what is not done or not verified.
+
+## License
+
+MIT, see [LICENSE](LICENSE).
