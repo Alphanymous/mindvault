@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react'
 
 export type Route =
+  | { name: 'home' }
   | { name: 'inbox' }
-  | { name: 'library'; folder?: string; type?: string; tag?: string }
+  | { name: 'prompts' }
+  | { name: 'library'; folder?: string; type?: string; tag?: string; c?: string }
   | { name: 'graph'; focus?: string }
-  | { name: 'item'; id: string }
-  | { name: 'settings' }
+  | { name: 'item'; id: string; page?: number }
+  | { name: 'settings'; tab?: string }
   | { name: 'pair'; token: string }
 
 export function parseHash(hash: string): Route {
@@ -14,18 +16,22 @@ export function parseHash(hash: string): Route {
   const q = new URLSearchParams(query)
   const [head, ...rest] = path.split('/')
   switch (head) {
+    case 'inbox':
+      return { name: 'inbox' }
+    case 'prompts':
+      return { name: 'prompts' }
     case 'library':
-      return { name: 'library', folder: q.get('folder') ?? undefined, type: q.get('type') ?? undefined, tag: q.get('tag') ?? undefined }
+      return { name: 'library', folder: q.get('folder') ?? undefined, type: q.get('type') ?? undefined, tag: q.get('tag') ?? undefined, c: q.get('c') ?? undefined }
     case 'graph':
       return { name: 'graph', focus: q.get('focus') ?? undefined }
     case 'item':
-      return rest[0] ? { name: 'item', id: rest[0] } : { name: 'inbox' }
+      return rest[0] ? { name: 'item', id: rest[0], page: Number(q.get('page')) > 0 ? Number(q.get('page')) : undefined } : { name: 'home' }
     case 'settings':
-      return { name: 'settings' }
+      return { name: 'settings', tab: q.get('tab') ?? undefined }
     case 'pair':
       return { name: 'pair', token: rest[0] ?? '' }
     default:
-      return { name: 'inbox' }
+      return { name: 'home' }
   }
 }
 
@@ -36,19 +42,24 @@ export function href(route: Route): string {
       if (route.folder) q.set('folder', route.folder)
       if (route.type) q.set('type', route.type)
       if (route.tag) q.set('tag', route.tag)
+      if (route.c) q.set('c', route.c)
       const s = q.toString()
       return `#/library${s ? '?' + s : ''}`
     }
     case 'graph':
       return route.focus ? `#/graph?focus=${encodeURIComponent(route.focus)}` : '#/graph'
     case 'item':
-      return `#/item/${route.id}`
+      return route.page ? `#/item/${route.id}?page=${route.page}` : `#/item/${route.id}`
     case 'settings':
-      return '#/settings'
+      return route.tab ? `#/settings?tab=${route.tab}` : '#/settings'
     case 'pair':
       return `#/pair/${route.token}`
-    default:
+    case 'inbox':
       return '#/inbox'
+    case 'prompts':
+      return '#/prompts'
+    default:
+      return '#/home'
   }
 }
 

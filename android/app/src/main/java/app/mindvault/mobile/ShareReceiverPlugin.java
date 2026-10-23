@@ -27,6 +27,9 @@ import java.util.List;
  */
 @CapacitorPlugin(name = "ShareReceiver")
 public class ShareReceiverPlugin extends Plugin {
+    /** Sent by the home-screen widget and launcher shortcuts; extra "mode" says what to open. */
+    public static final String ACTION_QUICK = "app.mindvault.mobile.QUICK";
+
     private static final long MAX_FILE_BYTES = 40L * 1024L * 1024L;
 
     private final List<Intent> pending = new ArrayList<>();
@@ -47,7 +50,7 @@ public class ShareReceiverPlugin extends Plugin {
     private boolean remember(Intent intent) {
         if (intent == null) return false;
         String action = intent.getAction();
-        if (!Intent.ACTION_SEND.equals(action) && !Intent.ACTION_SEND_MULTIPLE.equals(action)) return false;
+        if (!Intent.ACTION_SEND.equals(action) && !Intent.ACTION_SEND_MULTIPLE.equals(action) && !ACTION_QUICK.equals(action)) return false;
         synchronized (pending) {
             // Copy: the activity's own intent must not be consumed twice.
             pending.add(new Intent(intent));
@@ -77,6 +80,11 @@ public class ShareReceiverPlugin extends Plugin {
 
     private JSObject describe(Intent intent) throws Exception {
         JSObject out = new JSObject();
+        if (ACTION_QUICK.equals(intent.getAction())) {
+            String mode = intent.getStringExtra("mode");
+            out.put("shortcut", mode != null ? mode : "capture");
+            return out;
+        }
         String text = intent.getStringExtra(Intent.EXTRA_TEXT);
         if (text != null) out.put("text", text);
         String subject = intent.getStringExtra(Intent.EXTRA_SUBJECT);

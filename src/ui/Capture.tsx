@@ -2,18 +2,26 @@ import { useEffect, useRef, useState } from 'react'
 import { captureFile, captureText, type CaptureResult } from '../import/capture'
 import { Icon } from './Icon'
 import { toast } from './toast'
+import { useDictation } from './useDictation'
 
-export function Capture({ onClose, initial = '' }: { onClose(): void; initial?: string }) {
+export function Capture({ onClose, initial = '', dictate = false }: { onClose(): void; initial?: string; dictate?: boolean }) {
   const [text, setText] = useState(initial)
   const [files, setFiles] = useState<File[]>([])
   const [busy, setBusy] = useState(false)
   const [drag, setDrag] = useState(false)
   const ta = useRef<HTMLTextAreaElement>(null)
   const fileInput = useRef<HTMLInputElement>(null)
-  useEffect(() => ta.current?.focus(), [])
+  const voice = useDictation((chunk) => setText((t) => (t && !t.endsWith(' ') && !t.endsWith('\n') ? t + ' ' : t) + chunk))
+
+  useEffect(() => {
+    ta.current?.focus()
+    if (dictate && voice.supported) voice.start()
+    else if (dictate) toast('Voice input is not available here. Use the microphone key on your keyboard.', 'warn')
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const save = async () => {
     if (busy) return
+    if (voice.listening) voice.stop()
     if (!text.trim() && files.length === 0) return
     setBusy(true)
     const results: CaptureResult[] = []
@@ -58,6 +66,8 @@ export function Capture({ onClose, initial = '' }: { onClose(): void; initial?: 
           placeholder="Paste a link to clip a page, paste a prompt, or just write. Drop PDFs and files here."
           rows={6}
         />
+        {voice.listening && <p className="listening"><span className="pulse" /> Listening… {voice.interim && <i className="muted">{voice.interim}</i>}</p>}
+        {voice.error && <p className="small danger-text">{voice.error}</p>}
         {files.length > 0 && (
           <ul className="file-list">
             {files.map((f, i) => (
@@ -71,7 +81,12 @@ export function Capture({ onClose, initial = '' }: { onClose(): void; initial?: 
         <div className="capture-foot">
           <input ref={fileInput} type="file" multiple hidden onChange={(e) => { addFiles(e.target.files); e.target.value = '' }} />
           <button className="btn" onClick={() => fileInput.current?.click()}><Icon name="upload" size={16} /> Add files</button>
-          <span className="muted small">Ctrl+Enter to save</span>
+          {voice.supported && (
+            <button className={`btn ${voice.listening ? 'rec' : ''}`} onClick={() => (voice.listening ? voice.stop() : voice.start())} aria-pressed={voice.listening}>
+              <Icon name="sparkle" size={16} /> {voice.listening ? 'Stop' : 'Dictate'}
+            </button>
+          )}
+          <span className="muted small hide-mobile">Ctrl+Enter to save</span>
           <span className="spacer" />
           <button className="btn primary" disabled={busy || (!text.trim() && !files.length)} onClick={save}>
             {busy ? 'Saving…' : 'Save to inbox'}

@@ -3,6 +3,8 @@ import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl
 
+export { pdfjs }
+
 export interface PdfExtract {
   title?: string
   text: string

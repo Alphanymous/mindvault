@@ -15,6 +15,13 @@ Only [Obsidian](https://obsidian.md/) was used as a feature reference. All code 
 
 ## What it does
 
+- **Home dashboard**: continue where you left off, a prompt shelf with one-tap copy, pinned items, recent captures and **smart collections** (saved filters such as "Unread web clips" or "This week" that update themselves; save your own from any filter in the Library).
+- **Search that understands you**: `Ctrl K` fuses exact words, word forms and topics ("money" finds your invoices), highlights the matching passage, and can add true meaning-based matching through your own embeddings endpoint. Every note shows a **Related** panel with one-click suggested `[[links]]`.
+- **Prompt toolbox**: favorites, categories, variants, "recently used", copy-for-a-model with usage counts, remembered `{{variable}}` answers (so a prompt copies filled-in from the shelf), optional "Run it now" against your own chat endpoint, and Share on mobile.
+- **PDF and web reader with highlights**: open the original PDF in the app, select text, pick a color. Highlights sync with the document and each one can become a note that links back to the exact page.
+- **Keyboard-first**: `>` commands, `#` tags and `@` folders/collections inside search, vim-style `g i` / `g l` / `c` / `n` / `p` shortcuts (`?` lists them), and **voice capture** (Dictate in Capture, or hold the + button on a phone).
+- **Android extras**: home-screen widget (Capture, Voice, Search, Prompts), long-press launcher shortcuts and the share sheet.
+
 - **Capture** (`Ctrl+N`, the + button, paste anywhere, drag files in, or the PWA share target): a link becomes a clipped web page (readable text + original link), a PDF has its text extracted and the original kept, Markdown/text files become notes, anything else is stored as a file, pasted text that reads like an AI prompt becomes a prompt.
 - **Inbox → Library**: every capture gets a type, a suggested folder and tags with a confidence bar. **Accept** files it, **Change** lets you adjust folder/tags/type, **Accept all** clears the lot. Suggestions learn from folders and tags you already use.
 - **Prompts**: one-click copy, with `{{variables}}` filled from small input fields first.
@@ -23,6 +30,8 @@ Only [Obsidian](https://obsidian.md/) was used as a feature reference. All code 
 - **Search**: `Ctrl+K` palette over titles, tags, folders and full text, plus actions.
 - **Phone ↔ computer pairing** over Wi-Fi with a QR code, no Google account needed; see [docs/PHONE_AND_CLIPPER.md](docs/PHONE_AND_CLIPPER.md).
 - **Share sheet** on Android ("Share → Mindvault" for links, text, PDFs) and a **browser clipper** bookmarklet for the desktop app.
+- **Settings that explain themselves**: tabs for General, Sync, Capture, AI, Data and About. Guided Google sign-in with direct links and a client-ID check, one AI connection (OpenAI, OpenRouter, Ollama, LM Studio or custom) that powers sorting, meaning search and prompt runs, a clear page-download setup, and a **Test** button on every connection that tells you in plain words what works.
+- **Black and gold** theme with matching icons on web, Windows and Android (dark and light).
 - **Offline first**: data lives in IndexedDB on the device; the PWA works without a network.
 - **Google Drive sync** (optional, bring your own OAuth client ID): see [docs/GOOGLE_DRIVE_SETUP.md](docs/GOOGLE_DRIVE_SETUP.md).
 - **Optional AI sorting**: point Settings at any OpenAI-compatible chat endpoint to refine folders and tags (rules always work offline).

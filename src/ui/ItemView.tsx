@@ -1,17 +1,22 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { buildGraph, neighborhood } from '../core/links'
 import { normalizeTag, parseInlineTags } from '../core/markdown'
-import { fillPrompt, promptBody, promptVariables } from '../core/prompts'
-import type { GraphNode, Item } from '../core/types'
+import type { Annotation, GraphNode, Item } from '../core/types'
 import { createItem, deleteItem, getBlob, updateItem, useAppState } from '../data/store'
+import { useRelated } from '../data/meaning'
+import { markOpened } from '../data/usage'
 import { GraphCanvas } from './GraphCanvas'
 import { Icon } from './Icon'
-import { Markdown } from './Markdown'
+import { PdfReader } from './PdfReader'
+import { PromptToolbox } from './PromptToolbox'
+import { AnnotatedMarkdown, HighlightsPanel, scrollToAnnotation } from './Reader'
 import { go, href } from './router'
 import { toast } from './toast'
-import { TYPE_META, copyText, formatBytes, hostOf, timeAgo, useDebounced } from './util'
+import { TYPE_META, formatBytes, hostOf, timeAgo, useDebounced } from './util'
 
-export function ItemView({ id }: { id: string }) {
+type Mode = 'read' | 'edit' | 'pdf'
+
+export function ItemView({ id, page }: { id: string; page?: number }) {
   const { items } = useAppState()
   const item = items.find((i) => i.id === id && !i.deleted)
   if (!item) {
@@ -25,17 +30,34 @@ export function ItemView({ id }: { id: string }) {
       </div>
     )
   }
-  return <ItemBody key={item.id} item={item} />
+  return <ItemBody key={item.id} item={item} page={page} />
 }
 
-function ItemBody({ item }: { item: Item }) {
+function initialMode(item: Item): Mode {
+  if (item.type === 'pdf' && item.blobId) return 'pdf'
+  if (item.type === 'note' && item.content.trim() === '') return 'edit'
+  if (item.type === 'prompt' && item.title === 'New prompt') return 'edit'
+  return 'read'
+}
+
+function ItemBody({ item, page }: { item: Item; page?: number }) {
   const { folders, links, items } = useAppState()
   const meta = TYPE_META[item.type]
-  const [editing, setEditing] = useState(item.type === 'note' && item.content.trim() === '')
+  const [mode, setMode] = useState<Mode>(() => initialMode(item))
+  const [target, setTarget] = useState<{ page: number; n: number } | undefined>(page ? { page, n: 1 } : undefined)
   const [draft, setDraft] = useState(item.content)
   const [title, setTitle] = useState(item.title)
   const debDraft = useDebounced(draft, 450)
   const debTitle = useDebounced(title, 450)
+  const related = useRelated(item.id, 5)
+
+  useEffect(() => markOpened(item.id), [item.id])
+  useEffect(() => {
+    if (page) {
+      setMode('pdf')
+      setTarget((t) => ({ page, n: (t?.n ?? 0) + 1 }))
+    }
+  }, [page])
 
   // autosave content + merge inline #tags
   useEffect(() => {
@@ -52,6 +74,7 @@ function ItemBody({ item }: { item: Item }) {
   const backlinks = (links.backlinks.get(item.id) ?? []).map((i) => items.find((x) => x.id === i)).filter(Boolean) as Item[]
   const outgoing = (links.outgoing.get(item.id) ?? []).map((i) => items.find((x) => x.id === i)).filter(Boolean) as Item[]
   const missing = links.unresolved.get(item.id) ?? []
+  const linkedIds = new Set([...backlinks, ...outgoing].map((i) => i.id))
 
   const local = useMemo(() => {
     const g = buildGraph(items, { showTags: true, showFolders: false, showGhosts: true, hideOrphans: false })
@@ -73,6 +96,26 @@ function ItemBody({ item }: { item: Item }) {
       go({ name: 'item', id: it.id })
     }
   }
+
+  /** Add "Related: [[Title]]" so the connection shows up in the graph. */
+  const linkTo = (other: Item) => {
+    const next = `${draft.trimEnd()}\n\nRelated: [[${other.title}]]\n`
+    setDraft(next)
+    void updateItem(item.id, { content: next })
+    toast(`Linked to “${other.title}”`)
+  }
+
+  const goTo = (a: Annotation) => {
+    if (a.page) {
+      setMode('pdf')
+      setTarget((t) => ({ page: a.page!, n: (t?.n ?? 0) + 1 }))
+    } else {
+      setMode('read')
+      setTimeout(() => scrollToAnnotation(a), 80)
+    }
+  }
+
+  const canHighlight = item.type !== 'prompt'
 
   return (
     <div className="page item-page">
@@ -114,23 +157,30 @@ function ItemBody({ item }: { item: Item }) {
         <div className="muted small">Updated {timeAgo(item.updatedAt)}{item.size ? ` · ${formatBytes(item.size)}` : ''}</div>
 
         {(item.type === 'pdf' || item.type === 'file') && <BlobActions item={item} />}
-        {item.type === 'prompt' && !editing && <PromptCard content={draft} />}
 
         <div className="seg">
-          <button className={!editing ? 'on' : ''} onClick={() => setEditing(false)}><Icon name="eye" size={15} /> Read</button>
-          <button className={editing ? 'on' : ''} onClick={() => setEditing(true)}><Icon name="edit" size={15} /> Edit</button>
+          {item.type === 'pdf' && item.blobId && (
+            <button className={mode === 'pdf' ? 'on' : ''} onClick={() => setMode('pdf')}><Icon name="pdf" size={15} /> PDF</button>
+          )}
+          <button className={mode === 'read' ? 'on' : ''} onClick={() => setMode('read')}><Icon name="eye" size={15} /> {item.type === 'pdf' ? 'Text' : 'Read'}</button>
+          <button className={mode === 'edit' ? 'on' : ''} onClick={() => setMode('edit')}><Icon name="edit" size={15} /> Edit</button>
         </div>
 
-        {editing ? (
+        {mode === 'edit' ? (
           <Editor value={draft} onChange={setDraft} selfId={item.id} />
-        ) : item.type === 'prompt' ? null : draft.trim() ? (
-          <Markdown source={draft} />
+        ) : mode === 'pdf' ? (
+          <PdfReader item={item} target={target} />
+        ) : item.type === 'prompt' ? (
+          <PromptToolbox item={item} content={draft} />
+        ) : draft.trim() ? (
+          <AnnotatedMarkdown item={item} source={draft} />
         ) : (
           <p className="muted">Empty. Switch to Edit and start writing. Link notes with [[double brackets]].</p>
         )}
       </div>
 
       <aside className="item-side">
+        {canHighlight && <HighlightsPanel item={item} onGo={goTo} />}
         <section className="panel">
           <h4>Local graph</h4>
           <div className="mini-graph">
@@ -138,6 +188,21 @@ function ItemBody({ item }: { item: Item }) {
           </div>
           <a className="btn block" href={href({ name: 'graph', focus: item.id })}><Icon name="graph" size={16} /> Open in graph</a>
         </section>
+        {related.length > 0 && (
+          <section className="panel">
+            <h4>Related</h4>
+            <ul className="mini-list">
+              {related.map((r) => (
+                <li key={r.id} className="related-row">
+                  <a href={href({ name: 'item', id: r.id })}><Icon name={TYPE_META[r.type].icon} size={14} /> {r.title}</a>
+                  {!linkedIds.has(r.id) && (
+                    <button className="link-btn small" onClick={() => linkTo(r)} title="Add a [[link]] to this note">Link</button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
         <LinkList title={`Linked from (${backlinks.length})`} items={backlinks} empty="No notes link here yet." />
         <LinkList title={`Links to (${outgoing.length})`} items={outgoing} empty="Use [[Note title]] to link." />
         {missing.length > 0 && (
@@ -232,38 +297,6 @@ function BlobActions({ item }: { item: Item }) {
     <div className="row">
       {item.type === 'pdf' && <button className="btn" disabled={busy} onClick={() => open(false)}><Icon name="external" size={16} /> Open PDF</button>}
       <button className="btn" disabled={busy} onClick={() => open(true)}><Icon name="download" size={16} /> Download original</button>
-    </div>
-  )
-}
-
-function PromptCard({ content }: { content: string }) {
-  const body = promptBody(content)
-  const vars = promptVariables(body)
-  const [values, setValues] = useState<Record<string, string>>({})
-  const filled = fillPrompt(body, values)
-  const [copied, setCopied] = useState(false)
-  const copy = async () => {
-    const ok = await copyText(filled)
-    setCopied(ok)
-    toast(ok ? 'Prompt copied' : 'Copy failed', ok ? 'ok' : 'error')
-    setTimeout(() => setCopied(false), 1600)
-  }
-  return (
-    <div className="prompt-card">
-      {vars.length > 0 && (
-        <div className="vars">
-          {vars.map((v) => (
-            <label key={v}>
-              <span>{v}</span>
-              <input value={values[v] ?? ''} onChange={(e) => setValues({ ...values, [v]: e.target.value })} placeholder={`{{${v}}}`} />
-            </label>
-          ))}
-        </div>
-      )}
-      <pre className="prompt-text">{filled}</pre>
-      <button className={`btn primary big ${copied ? 'done' : ''}`} onClick={copy}>
-        <Icon name={copied ? 'check' : 'copy'} size={18} /> {copied ? 'Copied' : 'Copy prompt'}
-      </button>
     </div>
   )
 }

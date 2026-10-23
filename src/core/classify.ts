@@ -19,6 +19,7 @@ export const TOPICS: Record<string, string[]> = {
   'Business/Finance': [
     'revenue', 'invoice', 'budget', 'investment', 'market', 'startup', 'pricing', 'customer', 'sales', 'tax',
     'finance', 'accounting', 'profit', 'stock', 'strategy', 'marketing', 'contract', 'cashflow', 'roadmap',
+    'money', 'cash', 'cost', 'price', 'expense', 'payment', 'salary', 'income', 'spend', 'quarterly',
   ],
   'Health/Fitness': [
     'health', 'workout', 'exercise', 'diet', 'nutrition', 'sleep', 'medical', 'doctor', 'symptom', 'protein',
@@ -42,7 +43,7 @@ export const TOPICS: Record<string, string[]> = {
   'Legal/Admin': ['legal', 'policy', 'terms', 'agreement', 'compliance', 'gdpr', 'license', 'visa', 'passport', 'insurance'],
 }
 
-const STOPWORDS = new Set(
+export const STOPWORDS = new Set(
   (
     'a about above after again all also am an and any are as at be because been before being below between both but ' +
     'by can could did do does doing down during each few for from further had has have having he her here hers ' +

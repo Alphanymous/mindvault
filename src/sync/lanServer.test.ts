@@ -95,6 +95,15 @@ describe('desktop request handler', () => {
     expect(res.status).toBe(421)
   })
 
+  it('replaces the PWA service worker with a self-removing one so upgrades are never stuck on old files', async () => {
+    const { base } = await start({ allowRpc: false })
+    const sw = await (await fetch(`${base}/sw.js`)).text()
+    expect(sw).toContain('unregister()')
+    expect(sw).toContain('caches.delete')
+    expect(() => new Function(sw)).not.toThrow()
+    expect(await (await fetch(`${base}/registerSW.js`)).text()).toContain('disabled')
+  })
+
   it('does not serve files outside the app folder', async () => {
     const { base } = await start({ allowRpc: false })
     const res = await fetch(`${base}/..%2f..%2fpackage.json`)

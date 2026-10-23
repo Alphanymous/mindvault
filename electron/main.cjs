@@ -155,7 +155,7 @@ function createWindow() {
     height: 820,
     minWidth: 420,
     minHeight: 560,
-    backgroundColor: '#0e0f13',
+    backgroundColor: '#0b0a08',
     title: 'Mindvault',
     autoHideMenuBar: true,
     webPreferences: {
@@ -211,6 +211,7 @@ ipcMain.handle('mv:fetch-text', async (_e, url) => {
   const res = await net.fetch(u.toString(), {
     headers: { 'user-agent': 'Mozilla/5.0 (compatible; Mindvault/0.1)', accept: 'text/html,application/xhtml+xml' },
     redirect: 'follow',
+    signal: AbortSignal.timeout(20000),
   })
   if (!res.ok) throw new Error(`Server answered ${res.status}`)
   return await res.text()

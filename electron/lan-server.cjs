@@ -20,6 +20,18 @@ const MIME = {
   '.map': 'application/json',
 }
 
+// The desktop app always loads the files bundled with it. A cached PWA service worker from an older version
+// would keep serving the old UI after an upgrade, so /sw.js is replaced by a script that clears caches and
+// removes itself, and /registerSW.js does nothing.
+const KILL_SW = [
+  "self.addEventListener('install', () => self.skipWaiting())",
+  "self.addEventListener('activate', (event) => event.waitUntil((async () => {",
+  '  for (const key of await caches.keys()) await caches.delete(key)',
+  '  await self.registration.unregister()',
+  '  for (const client of await self.clients.matchAll({ type: "window" })) client.navigate(client.url)',
+  '})()))',
+].join('\n')
+
 const CLIP_LIMIT = 12 * 1024 * 1024
 const RPC_LIMIT = 110 * 1024 * 1024
 
@@ -125,6 +137,16 @@ function createRequestHandler(opts) {
         return sendJson(res, 200, result)
       }
 
+      if (req.method === 'GET' && pathname === '/sw.js') {
+        res.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8', 'cache-control': 'no-store' })
+        res.end(KILL_SW)
+        return
+      }
+      if (req.method === 'GET' && pathname === '/registerSW.js') {
+        res.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8', 'cache-control': 'no-store' })
+        res.end('/* service worker is disabled in the desktop app */')
+        return
+      }
       if (req.method === 'GET' || req.method === 'HEAD') return serveStatic(distDir, req, res)
       res.writeHead(404).end()
     } catch (e) {

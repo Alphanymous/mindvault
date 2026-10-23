@@ -39,7 +39,7 @@ function wikilinksToLinks(src: string, resolve: (t: string) => string | null): s
 export function renderMarkdown(src: string, resolve: (t: string) => string | null): string {
   const body = parseFrontmatter(src).body
   const html = marked.parse(wikilinksToLinks(body, resolve), { async: false }) as string
-  return DOMPurify.sanitize(html, { ADD_ATTR: ['target'], ALLOWED_URI_REGEXP: /^(?:https?|mailto|wikilink|tel):/i })
+  return DOMPurify.sanitize(html, { ADD_ATTR: ['target'], ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto|wikilink|tel):|#)/i })
 }
 
 export function Markdown({ source }: { source: string }) {

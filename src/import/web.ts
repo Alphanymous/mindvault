@@ -41,31 +41,59 @@ export function normalizeUrl(input: string): string | null {
   }
 }
 
+import type { ClipRoute } from '../core/providers'
+
+const DOWNLOAD_TIMEOUT_MS = 20_000
+
+export interface Downloaded {
+  html: string
+  /** Which path actually worked, shown by the connection test in Settings. */
+  route: ClipRoute
+}
+
 /**
  * Download page HTML. Order: Electron main process (no CORS) -> direct fetch (works inside
  * Capacitor's native HTTP and on CORS-friendly sites) -> user-configured proxy.
  */
-export async function fetchHtml(url: string): Promise<string> {
-  if (window.mindvault?.fetchText) return window.mindvault.fetchText(url)
+export async function fetchHtmlWithRoute(url: string): Promise<Downloaded> {
+  if (window.mindvault?.fetchText) return { html: await window.mindvault.fetchText(url), route: 'desktop' }
   let directError: unknown
   try {
-    const res = await fetch(url, { redirect: 'follow' })
+    const res = await fetch(url, { redirect: 'follow', signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS) })
     if (!res.ok) throw new ClipError(`Server answered ${res.status}`)
-    return await res.text()
+    return { html: await res.text(), route: isNativeApp() ? 'android' : 'direct' }
   } catch (e) {
     directError = e
   }
   const proxy = getState().settings.clipProxy.trim()
   if (proxy) {
-    const res = await fetch(proxy.replace('{url}', encodeURIComponent(url)))
-    if (!res.ok) throw new ClipError(`Proxy answered ${res.status}`)
-    return await res.text()
+    let res: Response
+    try {
+      res = await fetch(proxy.replace('{url}', encodeURIComponent(url)), { signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS) })
+    } catch (e) {
+      throw new ClipError(
+        (e as Error)?.name === 'TimeoutError'
+          ? 'The clip proxy took too long to answer.'
+          : 'The clip proxy could not be reached. Check the address in Settings → Capture.',
+      )
+    }
+    if (!res.ok) throw new ClipError(`The clip proxy answered ${res.status}`)
+    return { html: await res.text(), route: 'proxy' }
   }
   throw new ClipError(
     directError instanceof ClipError
       ? directError.message
-      : 'The browser blocked this download (CORS). Use the desktop/Android app, set a clip proxy in Settings, or paste the text.',
+      : 'The browser blocked this download (CORS). Use the desktop or Android app, or pick a clip proxy in Settings → Capture.',
   )
+}
+
+export async function fetchHtml(url: string): Promise<string> {
+  return (await fetchHtmlWithRoute(url)).html
+}
+
+/** True inside the Capacitor Android app, where fetch is routed through native HTTP. */
+export function isNativeApp(): boolean {
+  return !!(window as unknown as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor?.isNativePlatform?.()
 }
 
 export interface WebClip {

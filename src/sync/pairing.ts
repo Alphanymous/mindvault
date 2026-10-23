@@ -30,11 +30,32 @@ export function isValidItem(x: unknown): x is Item {
   if (i.size !== undefined && !isNum(i.size)) return false
   if (i.deleted !== undefined && typeof i.deleted !== 'boolean') return false
   if (i.pinned !== undefined && typeof i.pinned !== 'boolean') return false
+  if (i.annotations !== undefined && !validAnnotations(i.annotations)) return false
   if (i.suggestion !== undefined) {
     const s = i.suggestion as Record<string, unknown> | null
     if (!s || typeof s !== 'object' || !isStr(s.type) || !isStr(s.folder) || !Array.isArray(s.tags) || !isNum(s.confidence) || !isStr(s.reason)) return false
   }
   return true
+}
+
+const COLORS = ['yellow', 'green', 'pink', 'blue']
+
+function validAnnotations(x: unknown): boolean {
+  if (!Array.isArray(x) || x.length > 500) return false
+  return x.every((a) => {
+    if (!a || typeof a !== 'object') return false
+    const n = a as Record<string, unknown>
+    if (!isValidId(n.id) || !isStr(n.text) || n.text.length > 5000 || !isStr(n.color) || !COLORS.includes(n.color) || !isNum(n.createdAt)) return false
+    if (n.page !== undefined && !isNum(n.page)) return false
+    if (n.start !== undefined && !isNum(n.start)) return false
+    if (n.end !== undefined && !isNum(n.end)) return false
+    if (n.note !== undefined && (!isStr(n.note) || n.note.length > 5000)) return false
+    if (n.rects !== undefined) {
+      if (!Array.isArray(n.rects) || n.rects.length > 200) return false
+      if (!n.rects.every((r) => Array.isArray(r) && r.length === 4 && r.every(isNum))) return false
+    }
+    return true
+  })
 }
 
 export interface PairTarget {

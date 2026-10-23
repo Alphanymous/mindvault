@@ -1,42 +1,95 @@
 import { useMemo } from 'react'
+import { applyCollection, isEmptyQuery, newCollectionId, type CollectionQuery } from '../core/collections'
 import { excerpt } from '../core/markdown'
 import type { Item, ItemType } from '../core/types'
 import { createItem, useAppState } from '../data/store'
+import { allCollections, deleteCollection, saveCollection, useUsage } from '../data/usage'
 import { Icon } from './Icon'
 import { go, href, type Route } from './router'
-import { TYPE_META, hostOf, sortByRecent, timeAgo } from './util'
+import { toast } from './toast'
+import { TYPE_META, hostOf, timeAgo } from './util'
 
 type LibraryRoute = Extract<Route, { name: 'library' }>
 
 export function Library({ route }: { route: LibraryRoute }) {
   const { items, tags } = useAppState()
+  const usage = useUsage()
+  const collection = route.c ? allCollections(usage).find((c) => c.id === route.c) : undefined
+
+  const query: CollectionQuery = useMemo(
+    () => ({
+      ...(collection?.query ?? {}),
+      ...(route.folder ? { folder: route.folder } : {}),
+      ...(route.type ? { types: [route.type as ItemType] } : {}),
+      ...(route.tag ? { tags: [...(collection?.query.tags ?? []), route.tag] } : {}),
+    }),
+    [collection, route.folder, route.type, route.tag],
+  )
+
   const filtered = useMemo(() => {
-    let list = items.filter((i) => !i.deleted && i.status === 'organized')
-    if (route.folder) list = list.filter((i) => i.folder === route.folder || i.folder.startsWith(route.folder + '/'))
-    if (route.type) list = list.filter((i) => i.type === route.type)
-    if (route.tag) list = list.filter((i) => i.tags.includes(route.tag!))
-    return sortByRecent(list).sort((a, b) => Number(!!b.pinned) - Number(!!a.pinned))
-  }, [items, route.folder, route.type, route.tag])
+    const list = applyCollection(items, query, { seen: new Set(usage.seen), now: Date.now() })
+    return list.sort((a, b) => Number(!!b.pinned) - Number(!!a.pinned))
+  }, [items, query, usage.seen])
 
   const topTags = [...tags.entries()].sort((a, b) => b[1] - a[1]).slice(0, 12)
-  const title = route.folder ? route.folder.split('/').pop()! : route.type ? TYPE_META[route.type as ItemType]?.plural ?? 'Library' : route.tag ? `#${route.tag}` : 'Library'
+  const title = collection
+    ? collection.name
+    : route.folder
+      ? route.folder.split('/').pop()!
+      : route.type
+        ? (TYPE_META[route.type as ItemType]?.plural ?? 'Library')
+        : route.tag
+          ? `#${route.tag}`
+          : 'Library'
+  const canSave = !isEmptyQuery(query) && !collection?.builtin
 
   const newNote = async () => {
     const it = await createItem({ title: 'Untitled note', content: '', organized: true, type: 'note', folder: route.folder ?? '' })
     go({ name: 'item', id: it.id })
   }
 
+  const saveAsCollection = () => {
+    const name = prompt('Name this collection', title === 'Library' ? '' : title)?.trim()
+    if (!name) return
+    const c = { id: newCollectionId(name), name, icon: query.types?.length === 1 ? TYPE_META[query.types[0]].icon : 'tag', query }
+    saveCollection(c)
+    toast(`Saved collection “${name}”`)
+    go({ name: 'library', c: c.id })
+  }
+
   return (
     <div className="page">
       <header className="page-head">
         <div>
-          {route.folder && <div className="crumbs">{route.folder.split('/').map((p, i, a) => (
-            <a key={i} href={href({ name: 'library', folder: a.slice(0, i + 1).join('/') })}>{p}</a>
-          ))}</div>}
+          {route.folder && (
+            <div className="crumbs">
+              {route.folder.split('/').map((p, i, a) => (
+                <a key={i} href={href({ name: 'library', folder: a.slice(0, i + 1).join('/') })}>{p}</a>
+              ))}
+            </div>
+          )}
           <h1>{title}</h1>
-          <p className="sub">{filtered.length} item{filtered.length === 1 ? '' : 's'}</p>
+          <p className="sub">{filtered.length} item{filtered.length === 1 ? '' : 's'}{collection ? ' · updates automatically' : ''}</p>
         </div>
-        <button className="btn primary" onClick={newNote}><Icon name="plus" size={16} /> New note</button>
+        <div className="row">
+          {canSave && (
+            <button className="btn" onClick={saveAsCollection}><Icon name="tag" size={16} /> Save as collection</button>
+          )}
+          {collection && !collection.builtin && (
+            <button
+              className="btn ghost danger"
+              onClick={() => {
+                if (confirm(`Delete the collection “${collection.name}”? Your items stay.`)) {
+                  deleteCollection(collection.id)
+                  go({ name: 'library' })
+                }
+              }}
+            >
+              <Icon name="trash" size={16} />
+            </button>
+          )}
+          <button className="btn primary" onClick={newNote}><Icon name="plus" size={16} /> New note</button>
+        </div>
       </header>
 
       <div className="filters">
@@ -59,7 +112,7 @@ export function Library({ route }: { route: LibraryRoute }) {
       {filtered.length === 0 ? (
         <div className="empty">
           <h2>Nothing here yet</h2>
-          <p>Accepted items from your inbox appear in the library.</p>
+          <p>{collection ? 'Nothing matches this collection right now.' : 'Accepted items from your inbox appear in the library.'}</p>
         </div>
       ) : (
         <ul className="grid">
@@ -70,7 +123,7 @@ export function Library({ route }: { route: LibraryRoute }) {
   )
 }
 
-function LibraryCard({ item }: { item: Item }) {
+export function LibraryCard({ item }: { item: Item }) {
   const meta = TYPE_META[item.type]
   return (
     <li className="card tile" data-type={item.type}>

@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="capture"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/widget_capture">
+        <intent
+            android:action="app.mindvault.mobile.QUICK"
+            android:targetClass="app.mindvault.mobile.MainActivity"
+            android:targetPackage="app.mindvault.mobile">
+            <extra android:name="mode" android:value="capture" />
+        </intent>
+    </shortcut>
+    <shortcut
+        android:shortcutId="voice"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/widget_voice">
+        <intent
+            android:action="app.mindvault.mobile.QUICK"
+            android:targetClass="app.mindvault.mobile.MainActivity"
+            android:targetPackage="app.mindvault.mobile">
+            <extra android:name="mode" android:value="dictate" />
+        </intent>
+    </shortcut>
+    <shortcut
+        android:shortcutId="search"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/widget_search">
+        <intent
+            android:action="app.mindvault.mobile.QUICK"
+            android:targetClass="app.mindvault.mobile.MainActivity"
+            android:targetPackage="app.mindvault.mobile">
+            <extra android:name="mode" android:value="search" />
+        </intent>
+    </shortcut>
+</shortcuts>

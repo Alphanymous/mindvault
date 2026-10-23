@@ -10,6 +10,23 @@ export interface Suggestion {
   reason: string
 }
 
+export type HighlightColor = 'yellow' | 'green' | 'pink' | 'blue'
+
+/** A highlight on a PDF page (normalised rects) or on rendered text (character offsets). Synced with the item. */
+export interface Annotation {
+  id: string
+  text: string
+  color: HighlightColor
+  createdAt: number
+  /** PDF: 1-based page and rectangles as [x, y, w, h] fractions of the page. */
+  page?: number
+  rects?: number[][]
+  /** Text items: character offsets into the rendered text. */
+  start?: number
+  end?: number
+  note?: string
+}
+
 export interface Item {
   id: string
   type: ItemType
@@ -29,6 +46,7 @@ export interface Item {
   fileName?: string
   size?: number
   pinned?: boolean
+  annotations?: Annotation[]
   createdAt: number
   updatedAt: number
   /** Tombstone so deletions can sync. */
@@ -58,6 +76,9 @@ export interface Settings {
   peerToken: string
   peerAutoSync: boolean
   lastPeerSyncAt?: number
+  /** Optional OpenAI-compatible embeddings endpoint for meaning-based search. */
+  embeddingsEndpoint: string
+  embeddingsModel: string
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -71,6 +92,8 @@ export const DEFAULT_SETTINGS: Settings = {
   peerUrl: '',
   peerToken: '',
   peerAutoSync: true,
+  embeddingsEndpoint: '',
+  embeddingsModel: 'text-embedding-3-small',
 }
 
 export type EdgeKind = 'link' | 'tag' | 'folder'

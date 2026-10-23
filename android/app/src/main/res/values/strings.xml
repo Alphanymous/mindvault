@@ -4,4 +4,8 @@
     <string name="title_activity_main">Mindvault</string>
     <string name="package_name">app.mindvault.mobile</string>
     <string name="custom_url_scheme">app.mindvault.mobile</string>
+    <string name="widget_capture">+ Capture</string>
+    <string name="widget_voice">Voice</string>
+    <string name="widget_search">Search</string>
+    <string name="widget_prompts">Prompts</string>
 </resources>

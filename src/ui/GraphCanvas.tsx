@@ -50,20 +50,20 @@ function readPalette(): Palette {
   const cs = getComputedStyle(document.documentElement)
   const v = (n: string, fb: string) => cs.getPropertyValue(n).trim() || fb
   return {
-    bg: v('--bg', '#0e0f13'),
-    text: v('--text', '#e8e9ee'),
-    muted: v('--muted', '#8b8fa3'),
-    edge: v('--edge', '#8b8fa3'),
-    accent: v('--accent', '#8b7cff'),
+    bg: v('--bg', '#0b0a08'),
+    text: v('--text', '#f6f0e0'),
+    muted: v('--muted', '#9d9582'),
+    edge: v('--edge', '#9d9582'),
+    accent: v('--accent', '#f2b632'),
     types: {
-      note: v('--c-note', '#8b7cff'),
-      pdf: v('--c-pdf', '#ff7a9c'),
-      web: v('--c-web', '#3fd5c0'),
-      prompt: v('--c-prompt', '#ffc15a'),
-      file: v('--c-file', '#8fa1b8'),
-      tag: v('--c-tag', '#6c7086'),
-      folder: v('--c-folder', '#5aa7ff'),
-      ghost: v('--muted', '#8b8fa3'),
+      note: v('--c-note', '#f2b632'),
+      pdf: v('--c-pdf', '#ff7a59'),
+      web: v('--c-web', '#6fd1b0'),
+      prompt: v('--c-prompt', '#fff0c4'),
+      file: v('--c-file', '#aa9f8b'),
+      tag: v('--c-tag', '#85796a'),
+      folder: v('--c-folder', '#cf9f55'),
+      ghost: v('--muted', '#9d9582'),
     },
   }
 }

@@ -1,5 +1,9 @@
 # Google Drive sync: create your OAuth client ID
 
+> **Easiest path:** open **Settings → Sync** in the app. It shows these same steps with direct links, the exact address to register, a check that your client ID is well formed, a **Sign in with Google** button and a built-in connection test. This page is the long version.
+>
+> **About passwords:** Google does not let apps ask for a username and password, and Mindvault never sees yours. "Sign in with Google" opens Google's own sign-in window (OAuth), you log in there, and Google hands the app a short-lived permission to use its private Drive folder. That is the only supported way, and it is also the safest.
+
 Mindvault syncs through your own Google Cloud project, so no one else ever sees your data or shares a quota with you. It is free and takes about five minutes. You do this once.
 
 The app only requests the **`drive.appdata`** scope. Your vault is stored in a hidden app-data folder that does not show in the Drive file list and cannot be read by any other app. Because this is a non-sensitive scope, Google does not require app verification for personal use.

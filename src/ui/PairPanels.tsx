@@ -33,7 +33,7 @@ export function HostPanel() {
   const set = async (enabled: boolean) => setInfo(await api.setEnabled(enabled))
 
   return (
-    <section className="panel">
+    <section className="panel settings-section">
       <h3><Icon name="upload" size={18} /> Pair your phone</h3>
       <p className="muted">
         Sync notes, prompts and PDFs straight between your phone and this computer over your home Wi-Fi. No Google account needed. Only devices with the pairing code can connect.
@@ -98,7 +98,7 @@ export function ClipperPanel() {
 
   if (!api || !info) return null
   return (
-    <section className="panel">
+    <section className="panel settings-section">
       <h3><Icon name="web" size={18} /> Browser clipper</h3>
       <p className="muted">
         Save the page you are looking at (or just the text you selected) from Chrome, Edge or Firefox straight into your inbox, including pages that need you to be logged in.
@@ -158,7 +158,7 @@ export function PeerPanel() {
   )
 
   return (
-    <section className="panel">
+    <section className="panel settings-section">
       <h3><Icon name="refresh" size={18} /> Sync with your computer</h3>
       {paired ? (
         <>

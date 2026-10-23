@@ -9,6 +9,8 @@ interface SharedFile {
   tooLarge?: boolean
 }
 interface SharedPayload {
+  /** Set by the widget / launcher shortcuts: capture | dictate | search | prompts */
+  shortcut?: string
   text?: string
   subject?: string
   files?: SharedFile[]
@@ -45,6 +47,10 @@ export function initNativeShare(): () => void {
     }
     saved = 0
     for (const p of batch) {
+      if (p.shortcut) {
+        window.dispatchEvent(new CustomEvent('mv:quick', { detail: p.shortcut }))
+        continue
+      }
       if (p.text?.trim() || p.subject?.trim()) {
         const r = await captureShared({ text: p.text, title: p.subject })
         if (r.item) saved++

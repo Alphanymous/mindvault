@@ -23,6 +23,16 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
+            <meta-data
+                android:name="android.app.shortcuts"
+                android:resource="@xml/shortcuts" />
+
+            <!-- Quick actions sent by the widget and app shortcuts -->
+            <intent-filter>
+                <action android:name="app.mindvault.mobile.QUICK" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+
             <!-- Share sheet: "Share -> Mindvault" for links, text and PDFs/files -->
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
@@ -46,6 +56,17 @@
             </intent-filter>
 
         </activity>
+
+        <receiver
+            android:name=".QuickWidgetProvider"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_quick_info" />
+        </receiver>
 
         <provider
             android:name="androidx.core.content.FileProvider"
