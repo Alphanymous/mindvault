@@ -1,0 +1,50 @@
+import { useEffect, useState } from 'react'
+import { saveSettings } from '../data/store'
+import { TOKEN_RE } from '../sync/pairing'
+import { pingPeer, syncPeerNow } from '../sync/peer'
+import { go } from './router'
+import { toast } from './toast'
+
+/**
+ * Opened when a phone browser follows the pairing link served by the desktop app (http://<pc>:47822/#/pair/<token>).
+ * The page itself came from the computer, so its own origin is the peer to sync with.
+ */
+export function PairPage({ token }: { token: string }) {
+  const [message, setMessage] = useState('Pairing with your computer…')
+  const [failed, setFailed] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      if (!TOKEN_RE.test(token) || !/^https?:$/.test(location.protocol)) {
+        setFailed(true)
+        return setMessage('This is not a valid pairing link.')
+      }
+      if (!(await pingPeer(location.origin))) {
+        setFailed(true)
+        return setMessage('This page was not opened from the Mindvault desktop app. Open the pairing link on your phone, or paste it in Settings.')
+      }
+      await saveSettings({ peerUrl: location.origin, peerToken: token })
+      try {
+        const r = await syncPeerNow()
+        if (!cancelled) toast(`Paired. ${r.pushed} sent, ${r.pulled} received.`)
+      } catch (e) {
+        if (!cancelled) toast(e instanceof Error ? e.message : 'Paired, but the first sync failed', 'warn')
+      }
+      if (!cancelled) go({ name: 'inbox' })
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [token])
+
+  return (
+    <div className="page narrow">
+      <div className="empty">
+        <h2>{failed ? 'Could not pair' : 'Pairing'}</h2>
+        <p>{message}</p>
+        {failed && <a className="btn" href="#/settings">Open Settings</a>}
+      </div>
+    </div>
+  )
+}

@@ -4,8 +4,26 @@ import { getState } from '../data/store'
 declare global {
   interface Window {
     /** Provided by the Electron preload script. */
-    mindvault?: { fetchText(url: string): Promise<string>; platform: string }
+    mindvault?: {
+      fetchText(url: string): Promise<string>
+      platform: string
+      pair?: {
+        get(): Promise<PairInfo>
+        setEnabled(enabled: boolean): Promise<PairInfo>
+        reset(): Promise<PairInfo>
+      }
+      onRpc?(handler: (msg: unknown) => Promise<unknown>): void
+    }
   }
+}
+
+export interface PairInfo {
+  enabled: boolean
+  token: string
+  /** Pairing links to show as QR codes, one per network address. */
+  links: string[]
+  /** Endpoint the browser bookmarklet posts to. */
+  clipUrl: string
 }
 
 export class ClipError extends Error {}
@@ -59,7 +77,11 @@ export interface WebClip {
 export async function clipUrl(rawUrl: string): Promise<WebClip> {
   const url = normalizeUrl(rawUrl)
   if (!url) throw new ClipError('That does not look like a web address.')
-  const html = await fetchHtml(url)
+  return clipFromHtml(await fetchHtml(url), url)
+}
+
+/** Turn page HTML (downloaded, or captured from a live browser tab) into a readable Markdown clip. */
+export function clipFromHtml(html: string, url: string): WebClip {
   const r = extractReadable(html, url)
   if (r.markdown.length < 40) throw new ClipError('Could not find readable text on that page.')
   const header = [r.siteName ? `*${r.siteName}*` : '', r.description ? `> ${r.description}` : ''].filter(Boolean).join('\n\n')

@@ -55,7 +55,9 @@ export function useStore<T>(selector: (s: State) => T): T {
 export const useAppState = () => useSyncExternalStore(subscribe, () => state)
 
 export function newId(): string {
-  return crypto.randomUUID().replace(/-/g, '').slice(0, 16)
+  // crypto.randomUUID needs a secure context; the app can also be served over plain http from a paired computer.
+  const bytes = crypto.getRandomValues(new Uint8Array(8))
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')
 }
 
 export async function initStore() {

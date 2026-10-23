@@ -377,3 +377,13 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--a
   .overlay { padding-top: calc(6vh + var(--safe-t)); }
 }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+
+/* ---------- pairing, clipper, scanner ---------- */
+.pair-card { display: flex; gap: 18px; align-items: center; flex-wrap: wrap; background: var(--bg-2); border: 1px solid var(--border); border-radius: 14px; padding: 14px; }
+.pair-card img { border-radius: 10px; background: #fff; padding: 4px; }
+.pair-card > div { flex: 1; min-width: 220px; display: flex; flex-direction: column; gap: 10px; }
+.pair-link { display: block; word-break: break-all; font-size: 12.5px; }
+.bookmarklet { cursor: grab; }
+.scan { display: flex; flex-direction: column; gap: 10px; align-items: flex-start; }
+.scan video { width: 100%; max-width: 360px; border-radius: 14px; background: #000; aspect-ratio: 1; object-fit: cover; }
+.field input { width: 100%; }

@@ -1,14 +1,17 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useAppState } from '../data/store'
-import { captureFile, captureText } from '../import/capture'
+import { captureFile, captureShared } from '../import/capture'
+import { initNativeShare } from '../import/nativeShare'
 import { syncNow } from '../sync/drive'
 import { isSignedIn } from '../sync/google'
+import { syncPeerNow } from '../sync/peer'
 import { Capture } from './Capture'
 import { GraphView } from './GraphView'
 import { Icon } from './Icon'
 import { Inbox } from './Inbox'
 import { ItemView } from './ItemView'
 import { Library } from './Library'
+import { PairPage } from './PairPage'
 import { Palette } from './Palette'
 import { Settings } from './Settings'
 import { href, useRoute, type Route } from './router'
@@ -76,14 +79,17 @@ export function App() {
     }
   }, [openCapture])
 
-  // PWA share target: ?title=&text=&url=
+  // PWA share target (?title=&text=&url=) and the Android share sheet
   useEffect(() => {
     const q = new URLSearchParams(location.search)
-    const shared = [q.get('url'), q.get('text'), q.get('title')].find(Boolean)
-    if (shared) {
+    if (q.has('url') || q.has('text') || q.has('title')) {
       history.replaceState(null, '', location.pathname + location.hash)
-      void captureText(shared).then((r) => r.item && toast('Saved to your inbox', 'ok', { label: 'Review', href: '#/inbox' }))
+      void captureShared({ title: q.get('title'), text: q.get('text'), url: q.get('url') }).then((r) => {
+        if (r.item) toast('Saved to your inbox', r.warning ? 'warn' : 'ok', { label: 'Review', href: '#/inbox' })
+        else if (r.error) toast(r.error, 'error')
+      })
     }
+    return initNativeShare()
   }, [])
 
   // background sync
@@ -100,6 +106,22 @@ export function App() {
     window.addEventListener('online', onOnline)
     return () => { stop = true; clearTimeout(first); clearInterval(iv); window.removeEventListener('online', onOnline) }
   }, [settings.autoSync, settings.googleClientId])
+
+  // background sync with a paired computer (same Wi-Fi)
+  useEffect(() => {
+    if (!settings.peerAutoSync || !settings.peerUrl || !settings.peerToken) return
+    let stop = false
+    const tick = async () => {
+      if (stop || !navigator.onLine || document.visibilityState === 'hidden') return
+      try { await syncPeerNow() } catch { /* manual sync shows errors */ }
+    }
+    const first = setTimeout(tick, 1500)
+    const iv = setInterval(tick, 60_000)
+    const onVisible = () => void tick()
+    document.addEventListener('visibilitychange', onVisible)
+    window.addEventListener('online', onVisible)
+    return () => { stop = true; clearTimeout(first); clearInterval(iv); document.removeEventListener('visibilitychange', onVisible); window.removeEventListener('online', onVisible) }
+  }, [settings.peerAutoSync, settings.peerUrl, settings.peerToken])
 
   const inboxCount = items.filter((i) => !i.deleted && i.status === 'inbox').length
   const tree = buildTree(folders)
@@ -138,6 +160,7 @@ export function App() {
         {route.name === 'graph' && <GraphView key={route.focus ?? 'all'} focus={route.focus} />}
         {route.name === 'item' && <ItemView id={route.id} />}
         {route.name === 'settings' && <Settings />}
+        {route.name === 'pair' && <PairPage token={route.token} />}
       </main>
 
       <nav className="tabbar" aria-label="Main">

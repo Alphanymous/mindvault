@@ -53,6 +53,11 @@ export interface Settings {
   llmApiKey: string
   autoSync: boolean
   lastSyncAt?: number
+  /** Paired computer running Mindvault (LAN sync), e.g. http://192.168.1.5:47822 */
+  peerUrl: string
+  peerToken: string
+  peerAutoSync: boolean
+  lastPeerSyncAt?: number
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -63,6 +68,9 @@ export const DEFAULT_SETTINGS: Settings = {
   llmModel: 'gpt-4o-mini',
   llmApiKey: '',
   autoSync: true,
+  peerUrl: '',
+  peerToken: '',
+  peerAutoSync: true,
 }
 
 export type EdgeKind = 'link' | 'tag' | 'folder'

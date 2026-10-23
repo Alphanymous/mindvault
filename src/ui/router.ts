@@ -6,6 +6,7 @@ export type Route =
   | { name: 'graph'; focus?: string }
   | { name: 'item'; id: string }
   | { name: 'settings' }
+  | { name: 'pair'; token: string }
 
 export function parseHash(hash: string): Route {
   const raw = hash.replace(/^#\/?/, '')
@@ -21,6 +22,8 @@ export function parseHash(hash: string): Route {
       return rest[0] ? { name: 'item', id: rest[0] } : { name: 'inbox' }
     case 'settings':
       return { name: 'settings' }
+    case 'pair':
+      return { name: 'pair', token: rest[0] ?? '' }
     default:
       return { name: 'inbox' }
   }
@@ -42,6 +45,8 @@ export function href(route: Route): string {
       return `#/item/${route.id}`
     case 'settings':
       return '#/settings'
+    case 'pair':
+      return `#/pair/${route.token}`
     default:
       return '#/inbox'
   }

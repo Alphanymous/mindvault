@@ -5,6 +5,7 @@ import { liveItems, replaceItemsFromSync, saveSettings, useAppState } from '../d
 import { isSignedIn, signOut } from '../sync/google'
 import { syncNow } from '../sync/drive'
 import { Icon } from './Icon'
+import { ClipperPanel, HostPanel, PeerPanel } from './PairPanels'
 import { toast } from './toast'
 import { timeAgo } from './util'
 
@@ -68,6 +69,15 @@ export function Settings() {
           ))}
         </div>
       </section>
+
+      {window.mindvault?.pair ? (
+        <>
+          <HostPanel />
+          <ClipperPanel />
+        </>
+      ) : (
+        <PeerPanel />
+      )}
 
       <section className="panel">
         <h3><Icon name="cloud" size={18} /> Google Drive sync</h3>

@@ -1,0 +1,202 @@
+import { useCallback, useEffect, useRef, useState } from 'react'
+import QRCode from 'qrcode'
+import { saveSettings, useAppState } from '../data/store'
+import type { PairInfo } from '../import/web'
+import { buildBookmarklet, parsePairLink } from '../sync/pairing'
+import { mixedContentProblem, pingPeer, syncPeerNow } from '../sync/peer'
+import { Icon } from './Icon'
+import { ScanQr, qrScanSupported } from './ScanQr'
+import { toast } from './toast'
+import { copyText, timeAgo } from './util'
+
+/** Desktop app: let a phone on the same Wi-Fi pair and sync. */
+export function HostPanel() {
+  const api = window.mindvault?.pair
+  const [info, setInfo] = useState<PairInfo | null>(null)
+  const [qr, setQr] = useState<string[]>([])
+
+  useEffect(() => {
+    void api?.get().then(setInfo)
+  }, [api])
+  useEffect(() => {
+    let cancelled = false
+    if (!info?.enabled) return setQr([])
+    void Promise.all(info.links.map((l) => QRCode.toDataURL(l, { margin: 1, width: 220, errorCorrectionLevel: 'M' }))).then((u) => {
+      if (!cancelled) setQr(u)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [info])
+
+  if (!api || !info) return null
+  const set = async (enabled: boolean) => setInfo(await api.setEnabled(enabled))
+
+  return (
+    <section className="panel">
+      <h3><Icon name="upload" size={18} /> Pair your phone</h3>
+      <p className="muted">
+        Sync notes, prompts and PDFs straight between your phone and this computer over your home Wi-Fi. No Google account needed. Only devices with the pairing code can connect.
+      </p>
+      <label className="switch">
+        <input type="checkbox" checked={info.enabled} onChange={(e) => void set(e.target.checked)} />
+        <span className="track" /> Allow phone pairing on this network
+      </label>
+      {info.enabled && info.links.length === 0 && (
+        <p className="muted small">No network address found. Connect this computer to Wi-Fi or Ethernet.</p>
+      )}
+      {info.enabled &&
+        info.links.map((link, i) => (
+          <div key={link} className="pair-card">
+            {qr[i] && <img src={qr[i]} alt="Pairing QR code" width={220} height={220} />}
+            <div>
+              <p className="small">On your phone, open Mindvault, then Settings → Sync with your computer → scan this code, or paste the link:</p>
+              <code className="pair-link">{link}</code>
+              <div className="row">
+                <button className="btn" onClick={async () => toast((await copyText(link)) ? 'Pairing link copied' : 'Copy failed')}>
+                  <Icon name="copy" size={16} /> Copy link
+                </button>
+              </div>
+            </div>
+          </div>
+        ))}
+      {info.enabled && (
+        <>
+          <p className="muted small">
+            The first time, Windows asks whether to allow Mindvault on private networks. Choose <b>Private networks</b>. Traffic on your Wi-Fi is not encrypted, so only switch this on at home or on a network you trust.
+          </p>
+          <div className="row">
+            <button
+              className="btn"
+              onClick={async () => {
+                if (confirm('Create a new code? Phones paired with the old one will have to pair again.')) setInfo(await api.reset())
+              }}
+            >
+              Reset pairing code
+            </button>
+          </div>
+        </>
+      )}
+    </section>
+  )
+}
+
+/** Desktop app: bookmarklet that sends the page you are viewing to the inbox. */
+export function ClipperPanel() {
+  const api = window.mindvault?.pair
+  const [info, setInfo] = useState<PairInfo | null>(null)
+  const link = useRef<HTMLAnchorElement>(null)
+
+  useEffect(() => {
+    void api?.get().then(setInfo)
+  }, [api])
+  const code = info ? buildBookmarklet(info.clipUrl, info.token) : ''
+  useEffect(() => {
+    // React refuses javascript: URLs as props, so the bookmarklet is attached to the DOM node directly.
+    if (link.current && code) link.current.setAttribute('href', code)
+  }, [code])
+
+  if (!api || !info) return null
+  return (
+    <section className="panel">
+      <h3><Icon name="web" size={18} /> Browser clipper</h3>
+      <p className="muted">
+        Save the page you are looking at (or just the text you selected) from Chrome, Edge or Firefox straight into your inbox, including pages that need you to be logged in.
+        Drag this button to your bookmarks bar. Keep Mindvault running while you clip.
+      </p>
+      <div className="row">
+        <a ref={link} className="btn primary bookmarklet" draggable onClick={(e) => e.preventDefault()}>
+          <Icon name="plus" size={16} /> Save to Mindvault
+        </a>
+        <button className="btn" onClick={async () => toast((await copyText(code)) ? 'Bookmarklet copied. Paste it as the URL of a new bookmark.' : 'Copy failed')}>
+          <Icon name="copy" size={16} /> Copy bookmarklet
+        </button>
+      </div>
+      <p className="muted small">
+        Chrome may ask once to allow the site to reach apps on your computer. A few sites with strict security rules block bookmarklets; use the link capture there. The bookmarklet contains your private code, so do not share it.
+      </p>
+    </section>
+  )
+}
+
+/** Phone / other computer: connect to a desktop that has pairing switched on. */
+export function PeerPanel() {
+  const { settings } = useAppState()
+  const [text, setText] = useState('')
+  const [scanning, setScanning] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const paired = !!settings.peerUrl && !!settings.peerToken
+
+  const sync = useCallback(async () => {
+    setBusy(true)
+    try {
+      const r = await syncPeerNow()
+      toast(`Synced with your computer: ${r.pushed} sent, ${r.pulled} received${r.skipped ? `, ${r.skipped} skipped` : ''}`)
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Sync failed', 'error')
+    } finally {
+      setBusy(false)
+    }
+  }, [])
+
+  const pair = useCallback(
+    async (raw: string) => {
+      const target = parsePairLink(raw)
+      if (!target) return toast('That is not a Mindvault pairing link.', 'error')
+      const blocked = mixedContentProblem(target.url)
+      if (blocked) return toast(blocked, 'error')
+      setBusy(true)
+      const reachable = await pingPeer(target.url)
+      setBusy(false)
+      if (!reachable) return toast('Could not reach that computer. Same Wi-Fi? Is pairing switched on?', 'error')
+      await saveSettings({ peerUrl: target.url, peerToken: target.token })
+      setText('')
+      setScanning(false)
+      void sync()
+    },
+    [sync],
+  )
+
+  return (
+    <section className="panel">
+      <h3><Icon name="refresh" size={18} /> Sync with your computer</h3>
+      {paired ? (
+        <>
+          <p className="muted">Paired with <code>{settings.peerUrl}</code>. {settings.lastPeerSyncAt ? `Last synced ${timeAgo(settings.lastPeerSyncAt)}.` : 'Not synced yet.'}</p>
+          <div className="row">
+            <button className="btn primary" disabled={busy} onClick={() => void sync()}>
+              <Icon name="refresh" size={16} /> {busy ? 'Syncing…' : 'Sync now'}
+            </button>
+            <button className="btn" onClick={() => saveSettings({ peerUrl: '', peerToken: '' })}>Unpair</button>
+            <label className="switch inline">
+              <input type="checkbox" checked={settings.peerAutoSync} onChange={(e) => saveSettings({ peerAutoSync: e.target.checked })} />
+              <span className="track" /> Auto-sync
+            </label>
+          </div>
+        </>
+      ) : (
+        <>
+          <p className="muted">
+            On your computer open Mindvault → Settings → <b>Pair your phone</b>, then scan the code here or paste its link. Both devices must be on the same Wi-Fi.
+          </p>
+          {scanning ? (
+            <ScanQr onResult={(v) => void pair(v)} onClose={() => setScanning(false)} />
+          ) : (
+            <div className="row">
+              {qrScanSupported() && (
+                <button className="btn primary" onClick={() => setScanning(true)}><Icon name="search" size={16} /> Scan QR code</button>
+              )}
+            </div>
+          )}
+          <label className="field">
+            <span>Or paste the pairing link</span>
+            <input value={text} onChange={(e) => setText(e.target.value)} placeholder="http://192.168.1.5:47822/#/pair/…" spellCheck={false} />
+          </label>
+          <div className="row">
+            <button className="btn" disabled={busy || !text.trim()} onClick={() => void pair(text)}>{busy ? 'Connecting…' : 'Pair'}</button>
+          </div>
+        </>
+      )}
+    </section>
+  )
+}

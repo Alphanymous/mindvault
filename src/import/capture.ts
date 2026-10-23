@@ -2,7 +2,9 @@ import { firstHeading, parseFrontmatter, titleFromFileName } from '../core/markd
 import type { Item } from '../core/types'
 import { createItem } from '../data/store'
 import { extractPdf } from './pdf'
-import { clipUrl, normalizeUrl } from './web'
+import type { ClipPayload } from '../sync/pairing'
+import { parseShared, type SharedInput } from './shared'
+import { clipFromHtml, clipUrl, normalizeUrl } from './web'
 
 export interface CaptureResult {
   item?: Item
@@ -21,7 +23,7 @@ export async function captureText(raw: string): Promise<CaptureResult> {
   return { item: await createItem({ title, content: text }) }
 }
 
-export async function captureUrl(url: string): Promise<CaptureResult> {
+export async function captureUrl(url: string, titleHint?: string): Promise<CaptureResult> {
   try {
     const clip = await clipUrl(url)
     return { item: await createItem({ type: 'web', title: clip.title, content: clip.markdown, url: clip.url }) }
@@ -30,7 +32,7 @@ export async function captureUrl(url: string): Promise<CaptureResult> {
     const normalized = normalizeUrl(url) ?? url
     const item = await createItem({
       type: 'web',
-      title: hostTitle(normalized),
+      title: titleHint || hostTitle(normalized),
       content: `Saved link only.\n\n<${normalized}>`,
       url: normalized,
     })
@@ -95,4 +97,42 @@ export async function captureFile(file: File): Promise<CaptureResult> {
   } catch (e) {
     return { error: `${name}: ${e instanceof Error ? e.message : 'import failed'}` }
   }
+}
+
+/** Something another app shared with us (Android share sheet, PWA share target). */
+export async function captureShared(input: SharedInput): Promise<CaptureResult> {
+  const parsed = parseShared(input)
+  if (!parsed) return { error: 'Nothing to save.' }
+  if (parsed.kind === 'url') return captureUrl(parsed.url, parsed.title)
+  return { item: await createItem({ title: parsed.title, content: parsed.text }) }
+}
+
+/** A page sent from the desktop browser bookmarklet: already rendered, so no download is needed. */
+export async function captureClip(clip: ClipPayload): Promise<CaptureResult> {
+  if (clip.selection.trim()) {
+    const quote = clip.selection
+      .trim()
+      .split('\n')
+      .map((l) => `> ${l}`)
+      .join('\n')
+    const title = clip.title || hostTitle(clip.url)
+    const content = `# ${title}\n\n${quote}\n\n---\nSource: <${clip.url}>`
+    return { item: await createItem({ type: 'web', title, content, url: clip.url }) }
+  }
+  try {
+    const page = clipFromHtml(clip.html, clip.url)
+    return { item: await createItem({ type: 'web', title: clip.title || page.title, content: page.markdown, url: clip.url }) }
+  } catch {
+    return captureUrlLinkOnly(clip)
+  }
+}
+
+async function captureUrlLinkOnly(clip: ClipPayload): Promise<CaptureResult> {
+  const item = await createItem({
+    type: 'web',
+    title: clip.title || hostTitle(clip.url),
+    content: `Saved link only.\n\n<${clip.url}>`,
+    url: clip.url,
+  })
+  return { item, warning: 'No readable text on that page. Saved the link only.' }
 }

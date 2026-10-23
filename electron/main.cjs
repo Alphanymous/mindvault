@@ -1,58 +1,155 @@
 const { app, BrowserWindow, ipcMain, net, shell, Menu } = require('electron')
 const http = require('node:http')
+const os = require('node:os')
 const path = require('node:path')
 const fs = require('node:fs')
+const crypto = require('node:crypto')
+const { createRequestHandler } = require('./lan-server.cjs')
 
 // The renderer is served from http://localhost:<port> instead of file:// so that
 // Google Sign-In (which needs a registered http origin) and the service worker work.
 // Register this exact origin in your Google OAuth client: http://localhost:47821
 const PREFERRED_PORT = 47821
+// Optional LAN server for phone pairing (off until switched on in Settings).
+const LAN_PORT = 47822
 const DIST = path.join(__dirname, '..', 'dist')
 
-const MIME = {
-  '.html': 'text/html; charset=utf-8',
-  '.js': 'text/javascript; charset=utf-8',
-  '.mjs': 'text/javascript; charset=utf-8',
-  '.css': 'text/css; charset=utf-8',
-  '.json': 'application/json',
-  '.webmanifest': 'application/manifest+json',
-  '.svg': 'image/svg+xml',
-  '.png': 'image/png',
-  '.ico': 'image/x-icon',
-  '.woff2': 'font/woff2',
-  '.map': 'application/json',
+let mainWindow = null
+let loopbackPort = PREFERRED_PORT
+let lanServer = null
+let lanPort = LAN_PORT
+
+// ---- pairing config: { enabled, token } stored next to the app data ----
+const configFile = () => path.join(app.getPath('userData'), 'pairing.json')
+const newToken = () => crypto.randomBytes(16).toString('base64url')
+let config = { enabled: false, token: '' }
+
+function loadConfig() {
+  try {
+    const raw = JSON.parse(fs.readFileSync(configFile(), 'utf8'))
+    if (typeof raw.token === 'string' && raw.token.length >= 16) config = { enabled: !!raw.enabled, token: raw.token }
+  } catch {
+    /* first run */
+  }
+  if (!config.token) {
+    config.token = newToken()
+    saveConfig()
+  }
+}
+function saveConfig() {
+  fs.mkdirSync(path.dirname(configFile()), { recursive: true })
+  fs.writeFileSync(configFile(), JSON.stringify(config), { mode: 0o600 })
 }
 
-function startServer() {
-  const server = http.createServer((req, res) => {
-    try {
-      const urlPath = decodeURIComponent(new URL(req.url, 'http://localhost').pathname)
-      let file = path.normalize(path.join(DIST, urlPath))
-      if (!file.startsWith(DIST)) {
-        res.writeHead(403).end()
-        return
-      }
-      if (!fs.existsSync(file) || fs.statSync(file).isDirectory()) file = path.join(DIST, 'index.html')
-      const ext = path.extname(file).toLowerCase()
-      res.writeHead(200, { 'content-type': MIME[ext] ?? 'application/octet-stream', 'cache-control': 'no-cache' })
-      fs.createReadStream(file).pipe(res)
-    } catch {
-      res.writeHead(500).end()
+function lanAddresses() {
+  const out = []
+  for (const list of Object.values(os.networkInterfaces())) {
+    for (const i of list ?? []) {
+      if (i.family === 'IPv4' && !i.internal && !i.address.startsWith('169.254.')) out.push(i.address)
     }
+  }
+  const rank = (a) => (a.startsWith('192.168.') ? 0 : a.startsWith('10.') ? 1 : 2)
+  return out.sort((a, b) => rank(a) - rank(b))
+}
+
+function pairInfo() {
+  const links = config.enabled && lanServer ? lanAddresses().map((ip) => `http://${ip}:${lanPort}/#/pair/${config.token}`) : []
+  return { enabled: config.enabled && !!lanServer, token: config.token, links, clipUrl: `http://localhost:${loopbackPort}/api/clip` }
+}
+
+// ---- bridge: HTTP request -> renderer (which owns the data) -> HTTP response ----
+const pending = new Map()
+let nextRpc = 1
+function dispatchToRenderer(msg) {
+  return new Promise((resolve) => {
+    if (!mainWindow || mainWindow.isDestroyed()) return resolve({ ok: false, error: 'Mindvault window is not ready' })
+    const id = nextRpc++
+    const timer = setTimeout(() => {
+      pending.delete(id)
+      resolve({ ok: false, error: 'Mindvault did not answer in time' })
+    }, 120000)
+    pending.set(id, { resolve, timer })
+    mainWindow.webContents.send('mv:rpc', { id, msg })
   })
+}
+ipcMain.handle('mv:rpc-reply', (event, id, result) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents) return
+  const p = pending.get(id)
+  if (!p) return
+  clearTimeout(p.timer)
+  pending.delete(id)
+  p.resolve(result ?? { ok: false, error: 'empty answer' })
+})
+
+function listen(server, port, host) {
   return new Promise((resolve, reject) => {
-    const listen = (port) => {
-      server.once('error', (err) => {
-        if (err.code === 'EADDRINUSE' && port === PREFERRED_PORT) listen(0)
+    const attempt = (p) => {
+      const onError = (err) => {
+        if (err.code === 'EADDRINUSE' && p !== 0) attempt(0)
         else reject(err)
+      }
+      server.once('error', onError)
+      server.listen(p, host, () => {
+        server.removeListener('error', onError)
+        resolve(server.address().port)
       })
-      server.listen(port, '127.0.0.1', () => resolve(server.address().port))
     }
-    listen(PREFERRED_PORT)
+    attempt(port)
   })
 }
 
-function createWindow(port) {
+async function startLoopbackServer() {
+  const server = http.createServer()
+  loopbackPort = await listen(server, PREFERRED_PORT, '127.0.0.1')
+  server.on(
+    'request',
+    createRequestHandler({
+      distDir: DIST,
+      getToken: () => config.token,
+      dispatch: dispatchToRenderer,
+      allowRpc: false,
+      // Reject requests whose Host header is not us (DNS-rebinding guard).
+      allowedHosts: [`localhost:${loopbackPort}`, `127.0.0.1:${loopbackPort}`],
+    }),
+  )
+}
+
+async function startLanServer() {
+  if (lanServer) return
+  const server = http.createServer()
+  lanPort = await listen(server, LAN_PORT, '0.0.0.0')
+  server.on(
+    'request',
+    createRequestHandler({ distDir: DIST, getToken: () => config.token, dispatch: dispatchToRenderer, allowRpc: true, allowedHosts: null }),
+  )
+  lanServer = server
+}
+
+function stopLanServer() {
+  if (!lanServer) return
+  lanServer.close()
+  lanServer.closeAllConnections?.()
+  lanServer = null
+}
+
+const fromMainWindow = (event) => mainWindow && event.sender === mainWindow.webContents
+ipcMain.handle('mv:pair:get', (event) => (fromMainWindow(event) ? pairInfo() : null))
+ipcMain.handle('mv:pair:set', async (event, enabled) => {
+  if (!fromMainWindow(event)) return null
+  config.enabled = !!enabled
+  saveConfig()
+  if (config.enabled) await startLanServer()
+  else stopLanServer()
+  return pairInfo()
+})
+ipcMain.handle('mv:pair:reset', (event) => {
+  if (!fromMainWindow(event)) return null
+  config.token = newToken()
+  saveConfig()
+  return pairInfo()
+})
+
+function createWindow() {
   const win = new BrowserWindow({
     width: 1280,
     height: 820,
@@ -68,6 +165,7 @@ function createWindow(port) {
       sandbox: true,
     },
   })
+  mainWindow = win
 
   win.webContents.setWindowOpenHandler(({ url }) => {
     let host = ''
@@ -84,12 +182,15 @@ function createWindow(port) {
     return { action: 'deny' }
   })
   win.webContents.on('will-navigate', (e, url) => {
-    if (!url.startsWith(`http://localhost:${port}`)) {
+    if (!url.startsWith(`http://localhost:${loopbackPort}`)) {
       e.preventDefault()
       if (/^https?:/.test(url)) shell.openExternal(url)
     }
   })
-  win.loadURL(`http://localhost:${port}/`)
+  win.on('closed', () => {
+    mainWindow = null
+  })
+  win.loadURL(`http://localhost:${loopbackPort}/`)
 }
 
 // Web clipping must never reach the user's own machine or LAN (SSRF guard for the CORS-free fetch).
@@ -120,16 +221,23 @@ if (!gotLock) {
   app.quit()
 } else {
   app.on('second-instance', () => {
-    const [win] = BrowserWindow.getAllWindows()
-    if (win) {
-      if (win.isMinimized()) win.restore()
-      win.focus()
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore()
+      mainWindow.focus()
     }
   })
   app.whenReady().then(async () => {
     Menu.setApplicationMenu(null)
-    const port = await startServer()
-    createWindow(port)
+    loadConfig()
+    await startLoopbackServer()
+    if (config.enabled) {
+      try {
+        await startLanServer()
+      } catch {
+        config.enabled = false
+      }
+    }
+    createWindow()
   })
   app.on('window-all-closed', () => app.quit())
 }

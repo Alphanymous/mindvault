@@ -21,6 +21,8 @@ Only [Obsidian](https://obsidian.md/) was used as a feature reference. All code 
 - **Notes**: Markdown with `[[wikilinks]]` (autocomplete after `[[`), `[[Note|alias]]`, `#tags`, backlinks panel, renaming a note updates links pointing at it, links to missing notes can be created in one click.
 - **Graph**: canvas force graph. Zoom (wheel/pinch/buttons), pan, drag nodes, hover to highlight neighbours, click to select, double-click to open, filter by text, toggle tags/folders/unwritten links/orphans, filter by item type. Every note also shows a local graph.
 - **Search**: `Ctrl+K` palette over titles, tags, folders and full text, plus actions.
+- **Phone ↔ computer pairing** over Wi-Fi with a QR code, no Google account needed; see [docs/PHONE_AND_CLIPPER.md](docs/PHONE_AND_CLIPPER.md).
+- **Share sheet** on Android ("Share → Mindvault" for links, text, PDFs) and a **browser clipper** bookmarklet for the desktop app.
 - **Offline first**: data lives in IndexedDB on the device; the PWA works without a network.
 - **Google Drive sync** (optional, bring your own OAuth client ID): see [docs/GOOGLE_DRIVE_SETUP.md](docs/GOOGLE_DRIVE_SETUP.md).
 - **Optional AI sorting**: point Settings at any OpenAI-compatible chat endpoint to refine folders and tags (rules always work offline).
@@ -66,7 +68,7 @@ powershell -ExecutionPolicy Bypass -File scripts/setup-android.ps1   # JDK 21 vi
 npm run apk
 ```
 
-`npm run apk` runs [scripts/build-apk.ps1](scripts/build-apk.ps1): web build, `cap add android` (first time), `cap sync`, `gradlew assembleDebug`, and copies the result to `release/Mindvault-debug.apk`. Enable "install unknown apps" on the phone and open the file. A debug APK is signed with the debug key; for the Play Store make a release keystore and run `gradlew bundleRelease`.
+Tip: if C: is short on space, put the JDK, SDK and Gradle cache on another drive and set `JAVA_HOME`, `ANDROID_HOME` and `GRADLE_USER_HOME` before building (that is how the first APK was built). `npm run apk` runs [scripts/build-apk.ps1](scripts/build-apk.ps1): web build, `cap add android` (first time), `cap sync`, `gradlew assembleDebug`, and copies the result to `release/Mindvault-debug.apk`. Enable "install unknown apps" on the phone and open the file. A debug APK is signed with the debug key; for the Play Store make a release keystore and run `gradlew bundleRelease`.
 The Capacitor config turns on `CapacitorHttp`, so web clipping on Android bypasses CORS.
 
 ## Project layout
