@@ -1,7 +1,6 @@
-import { acceptAllInbox, createItem, saveSettings, getState } from '../data/store'
+import { createItem, saveSettings, getState } from '../data/store'
 import type { ShortcutAction } from '../core/keys'
 import { go } from './router'
-import { toast } from './toast'
 
 /** What the app shell lets commands and shortcuts do. */
 export interface AppActions {
@@ -41,7 +40,7 @@ export async function newPrompt() {
 export function runShortcut(action: ShortcutAction, a: AppActions) {
   switch (action) {
     case 'home': return go({ name: 'home' })
-    case 'inbox': return go({ name: 'inbox' })
+    case 'fresh': return go({ name: 'library', c: 'new' })
     case 'library': return go({ name: 'library' })
     case 'graph': return go({ name: 'graph' })
     case 'prompts': return go({ name: 'prompts' })
@@ -64,20 +63,13 @@ export function makeCommands(a: AppActions): Command[] {
     { id: 'dictate', label: 'Dictate a note (voice)', icon: 'sparkle', keywords: 'voice speak microphone record', run: () => a.openCapture({ dictate: true }) },
     nav('new-note', 'New note', 'edit', 'newNote', 'n', 'write create'),
     nav('new-prompt', 'New prompt', 'prompt', 'newPrompt', 'p', 'ai template create'),
-    nav('home', 'Go to Home', 'graph', 'home', 'g h', 'dashboard start'),
-    nav('inbox', 'Go to Inbox', 'inbox', 'inbox', 'g i', 'review file'),
+    nav('home', 'Go to Home', 'home', 'home', 'g h', 'dashboard start'),
+    nav('fresh', 'New items', 'bolt', 'fresh', 'g n', 'recent unread latest added inbox'),
     nav('library', 'Go to Library', 'library', 'library', 'g l', 'all items browse'),
     nav('prompts', 'Go to Prompts', 'prompt', 'prompts', 'g p', 'toolbox'),
     nav('graph', 'Open the Graph', 'graph', 'graph', 'g g', 'map network'),
     nav('settings', 'Settings & sync', 'settings', 'settings', 'g s', 'preferences pairing drive'),
     nav('back', 'Go back', 'back', 'back', 'b', 'previous history jump'),
-    {
-      id: 'accept-all',
-      label: 'Accept everything in the inbox',
-      icon: 'check',
-      keywords: 'file organise',
-      run: async () => toast(`Filed ${await acceptAllInbox()} items`),
-    },
     {
       id: 'theme',
       label: 'Switch theme (dark / light)',

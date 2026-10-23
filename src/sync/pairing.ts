@@ -95,7 +95,7 @@ function say(t,ms){box.textContent=t;if(!box.parentNode)document.body.appendChil
 say('Saving to Mindvault…');
 fetch(U,{method:'POST',headers:{'content-type':'text/plain'},body:JSON.stringify({token:T,url:location.href,title:document.title,selection:sel,html:sel?'':document.documentElement.outerHTML})})
 .then(function(r){return r.json()})
-.then(function(j){say(j.ok?'Saved to your Mindvault inbox':'Mindvault: '+(j.error||'failed'),2600)})
+.then(function(j){say(j.ok?'Saved to Mindvault':'Mindvault: '+(j.error||'failed'),2600)})
 .catch(function(){say('Could not reach Mindvault. Is the desktop app running? (Some sites block this.)',4000)});
 })();`
   return 'javascript:' + encodeURIComponent(code.replace(/\n/g, ''))

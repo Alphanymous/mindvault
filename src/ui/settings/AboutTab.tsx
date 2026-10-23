@@ -8,11 +8,11 @@ export function AboutTab() {
   return (
     <>
       <Section icon="graph" title={`Mindvault ${__APP_VERSION__}`}>
-        <p className="muted">Running as the {where}. Everything is stored on this device; sync and AI are optional.</p>
+        <p className="muted">Running as the {where}. Everything is stored on this device; sync is optional.</p>
         <ul className="plain">
           <li>Home dashboard, smart collections, prompt toolbox</li>
           <li>PDF and web reader with highlights that link back to the page</li>
-          <li>Search by words, topics and (optionally) meaning; related notes and suggested links</li>
+          <li>Search by words and topics, related notes and suggested links</li>
           <li>Pair your phone over Wi-Fi, sync through Google Drive, share to Mindvault on Android</li>
         </ul>
       </Section>

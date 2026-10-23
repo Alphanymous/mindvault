@@ -126,7 +126,6 @@ function ItemBody({ item, page }: { item: Item; page?: number }) {
           </a>
           <span className="type-badge" data-type={item.type}><Icon name={meta.icon} size={14} /> {meta.label}</span>
           <span className="spacer" />
-          {item.status === 'inbox' && <a className="btn" href="#/inbox">In inbox</a>}
           <button className="btn ghost" onClick={() => updateItem(item.id, { pinned: !item.pinned })} title="Pin">
             <Icon name="sparkle" size={16} /> {item.pinned ? 'Pinned' : 'Pin'}
           </button>

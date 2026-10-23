@@ -9,7 +9,7 @@ export function GeneralTab() {
   return (
     <>
       <Section icon="eye" title="Appearance">
-        <p className="muted">Black and gold by default. Light mode is warm paper with the same gold.</p>
+        <p className="muted">Dark is the signature look. Light is there for bright rooms.</p>
         <div className="seg">
           {(['dark', 'light', 'system'] as const).map((t) => (
             <button key={t} className={settings.theme === t ? 'on' : ''} onClick={() => saveSettings({ theme: t })}>
@@ -21,10 +21,10 @@ export function GeneralTab() {
 
       <Section icon="search" title="Keyboard and voice" status={<Status kind={voice ? 'ok' : 'off'}>{voice ? 'Voice available' : 'No voice here'}</Status>}>
         <p className="muted">
-          Press <kbd>Ctrl K</kbd> anywhere to search; type <kbd>&gt;</kbd> for commands, <kbd>#</kbd> for tags, <kbd>@</kbd> for folders. Letter shortcuts such as <kbd>g</kbd> <kbd>i</kbd> and <kbd>c</kbd> work when you are not typing.
+          Press <kbd>Ctrl K</kbd> anywhere to search; type <kbd>&gt;</kbd> for commands, <kbd>#</kbd> for tags, <kbd>@</kbd> for folders. Letter shortcuts such as <kbd>g</kbd> <kbd>l</kbd> and <kbd>c</kbd> work when you are not typing.
         </p>
         <div className="row">
-          <button className="btn" onClick={() => window.dispatchEvent(new Event('mv:help'))}><Icon name="search" size={16} /> Show all shortcuts</button>
+          <button className="btn" onClick={() => window.dispatchEvent(new Event('mv:help'))}><Icon name="help" size={16} /> Show all shortcuts</button>
         </div>
         <p className="muted small">
           {voice

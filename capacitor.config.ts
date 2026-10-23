@@ -9,7 +9,7 @@ const config: CapacitorConfig = {
     // Routes fetch() through native HTTP, which removes CORS limits so web clipping works on Android.
     CapacitorHttp: { enabled: true },
   },
-  android: { backgroundColor: '#0b0a08' },
+  android: { backgroundColor: '#060a12' },
 }
 
 export default config

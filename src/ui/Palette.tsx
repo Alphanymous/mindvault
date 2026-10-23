@@ -64,7 +64,7 @@ export function Palette({ onClose, actions, initial = '' }: { onClose(): void; a
       key: i.id,
       icon: TYPE_META[i.type].icon,
       label: i.title,
-      hint: i.folder || (i.status === 'inbox' ? 'Inbox' : undefined),
+      hint: i.folder || undefined,
       run: close(() => go({ name: 'item', id: i.id })),
       ...extra,
     })

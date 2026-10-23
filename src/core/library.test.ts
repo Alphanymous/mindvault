@@ -76,12 +76,12 @@ describe('usage', () => {
 })
 
 describe('key sequences', () => {
-  it('completes "g i" within the timeout and resets after it', () => {
+  it('completes "g l" within the timeout and resets after it', () => {
     const s = createSequencer(SHORTCUTS)
     expect(s.feed('g', 0)).toBeNull()
-    expect(s.feed('i', 100)).toBe('inbox')
+    expect(s.feed('l', 100)).toBe('library')
     expect(s.feed('g', 200)).toBeNull()
-    expect(s.feed('i', 5000)).toBeNull() // too slow: "i" alone is nothing
+    expect(s.feed('l', 5000)).toBeNull() // too slow: "l" alone is nothing
   })
   it('fires single keys and recovers from a wrong second key', () => {
     const s = createSequencer(SHORTCUTS)

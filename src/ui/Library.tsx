@@ -32,6 +32,15 @@ export function Library({ route }: { route: LibraryRoute }) {
   }, [items, query, usage.seen])
 
   const topTags = [...tags.entries()].sort((a, b) => b[1] - a[1]).slice(0, 12)
+  // topics = top-level folders; they replace the old folder tree
+  const topics = useMemo(() => {
+    const counts = new Map<string, number>()
+    for (const i of items) {
+      const top = i.deleted ? '' : i.folder.split('/')[0]
+      if (top) counts.set(top, (counts.get(top) ?? 0) + 1)
+    }
+    return [...counts.entries()].sort((a, b) => b[1] - a[1])
+  }, [items])
   const title = collection
     ? collection.name
     : route.folder
@@ -100,6 +109,18 @@ export function Library({ route }: { route: LibraryRoute }) {
           </a>
         ))}
       </div>
+      {topics.length > 1 && (
+        <div className="filters topic-row" aria-label="Topics">
+          {topics.map(([t, n]) => {
+            const on = route.folder === t || !!route.folder?.startsWith(t + '/')
+            return (
+              <a key={t} className={`chip topic ${on ? 'on' : ''}`} href={href({ ...route, folder: on ? undefined : t })}>
+                <Icon name="folder" size={12} /> {t} <small>{n}</small>
+              </a>
+            )
+          })}
+        </div>
+      )}
       {topTags.length > 0 && (
         <div className="filters tagrow">
           {route.tag && <a className="chip on" href={href({ ...route, tag: undefined })}>#{route.tag} ✕</a>}
@@ -112,7 +133,7 @@ export function Library({ route }: { route: LibraryRoute }) {
       {filtered.length === 0 ? (
         <div className="empty">
           <h2>Nothing here yet</h2>
-          <p>{collection ? 'Nothing matches this collection right now.' : 'Accepted items from your inbox appear in the library.'}</p>
+          <p>{collection ? 'Nothing matches this collection right now.' : 'Everything you capture is filed here automatically.'}</p>
         </div>
       ) : (
         <ul className="grid">

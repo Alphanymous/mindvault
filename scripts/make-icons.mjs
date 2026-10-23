@@ -1,17 +1,17 @@
-// Draws the Mindvault icon (black + gold vault dial with a connected graph) and renders every size needed:
+// Draws the Mindvault icon (blue-to-green vault dial with a red marker and a connected graph on deep navy) and renders every size needed:
 // PWA, Electron/Windows (.ico), Android launcher + adaptive icons + splash. Run: npm run icons
 import sharp from 'sharp'
 import { mkdirSync, writeFileSync } from 'node:fs'
 
-const GOLD_HI = '#ffe08a'
-const GOLD = '#f2b632'
-const GOLD_LO = '#c98a12'
-const BLACK = '#0b0a08'
+const BLUE = '#3d8bff'
+const GREEN = '#1ee59a'
+const RED = '#ff4060'
+const BLACK = '#060a12'
 
 const defs = `
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#201808"/><stop offset="1" stop-color="${BLACK}"/></linearGradient>
-    <linearGradient id="gold" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${GOLD_HI}"/><stop offset=".55" stop-color="${GOLD}"/><stop offset="1" stop-color="${GOLD_LO}"/></linearGradient>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0f1b33"/><stop offset="1" stop-color="${BLACK}"/></linearGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${BLUE}"/><stop offset="1" stop-color="${GREEN}"/></linearGradient>
   </defs>`
 
 // Vault dial: ring with 12 tick marks, three linked nodes in the middle.
@@ -32,7 +32,8 @@ const art = `
   </g>
   <circle cx="256" cy="196" r="34" fill="url(#gold)"/>
   <circle cx="198" cy="296" r="26" fill="url(#gold)"/>
-  <circle cx="314" cy="296" r="26" fill="url(#gold)"/>`
+  <circle cx="314" cy="296" r="26" fill="url(#gold)"/>
+  <circle cx="256" cy="60" r="17" fill="${RED}"/>`
 
 const full = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">${defs}<rect width="512" height="512" rx="112" fill="url(#bg)"/>${art}</svg>`
 const square = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">${defs}<rect width="512" height="512" fill="url(#bg)"/>${art}</svg>`
@@ -92,7 +93,7 @@ for (const [d, [legacy, fg]] of Object.entries(densities)) {
 writeFileSync(`${res}/values/ic_launcher_background.xml`, `<?xml version="1.0" encoding="utf-8"?>\n<resources>\n    <color name="ic_launcher_background">${BLACK.toUpperCase()}</color>\n</resources>\n`)
 writeFileSync(
   `${res}/values/colors.xml`,
-  `<?xml version="1.0" encoding="utf-8"?>\n<resources>\n    <color name="colorPrimary">${BLACK.toUpperCase()}</color>\n    <color name="colorPrimaryDark">${BLACK.toUpperCase()}</color>\n    <color name="colorAccent">${GOLD.toUpperCase()}</color>\n</resources>\n`,
+  `<?xml version="1.0" encoding="utf-8"?>\n<resources>\n    <color name="colorPrimary">${BLACK.toUpperCase()}</color>\n    <color name="colorPrimaryDark">${BLACK.toUpperCase()}</color>\n    <color name="colorAccent">${BLUE.toUpperCase()}</color>\n</resources>\n`,
 )
 const splashSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000"><rect width="1000" height="1000" fill="${BLACK}"/><g transform="translate(350 350) scale(.6)">${defs}${art}</g></svg>`
 writeFileSync(`${res}/drawable/splash.png`, await sharp(Buffer.from(splashSvg), { density: 144 }).resize(1080, 1080).png().toBuffer())

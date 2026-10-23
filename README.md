@@ -1,7 +1,7 @@
 # Mindvault
 
 A local-first personal knowledge base in the spirit of Obsidian, but simpler and nicer to look at.
-Save notes, PDFs, web pages, reusable AI prompts and files. Everything is **auto-sorted into an inbox** you accept in one click, linked into a **living knowledge graph**, searchable from anywhere, and optionally **synced through your own Google Drive**.
+Save notes, PDFs, web pages, reusable AI prompts and files. Everything **files itself** (type, folder and tags are picked for you), linked into a **living knowledge graph**, searchable from anywhere, and optionally **synced through your own Google Drive**.
 
 One TypeScript/React codebase, three targets:
 
@@ -23,7 +23,7 @@ Only [Obsidian](https://obsidian.md/) was used as a feature reference. All code 
 - **Android extras**: home-screen widget (Capture, Voice, Search, Prompts), long-press launcher shortcuts and the share sheet.
 
 - **Capture** (`Ctrl+N`, the + button, paste anywhere, drag files in, or the PWA share target): a link becomes a clipped web page (readable text + original link), a PDF has its text extracted and the original kept, Markdown/text files become notes, anything else is stored as a file, pasted text that reads like an AI prompt becomes a prompt.
-- **Inbox → Library**: every capture gets a type, a suggested folder and tags with a confidence bar. **Accept** files it, **Change** lets you adjust folder/tags/type, **Accept all** clears the lot. Suggestions learn from folders and tags you already use.
+- **Auto-filing**: every capture gets a type, a folder and tags straight away, learned from the folders and tags you already use. New, unopened items show under **New** on Home and in the sidebar; change the folder or tags from the item itself.
 - **Prompts**: one-click copy, with `{{variables}}` filled from small input fields first.
 - **Notes**: Markdown with `[[wikilinks]]` (autocomplete after `[[`), `[[Note|alias]]`, `#tags`, backlinks panel, renaming a note updates links pointing at it, links to missing notes can be created in one click.
 - **Graph**: canvas force graph. Zoom (wheel/pinch/buttons), pan, drag nodes, hover to highlight neighbours, click to select, double-click to open, filter by text, toggle tags/folders/unwritten links/orphans, filter by item type. Every note also shows a local graph.
@@ -87,7 +87,7 @@ src/core      pure logic, unit tested: markdown/wikilinks/tags, classify, links+
 src/data      IndexedDB (idb), reactive store, sample vault
 src/import    PDF text extraction (pdf.js), web clipping, capture routing
 src/sync      Google token flow, Drive appDataFolder sync, last-writer-wins planner
-src/ui        React screens: Inbox, Library, Item, Graph (canvas), Palette, Capture, Settings
+src/ui        React screens: Home, Library, Item, Prompts, Graph (canvas), Palette, Capture, Settings
 electron/     main + preload (local static server, CORS-free fetch)
 scripts/      icon generation, Android setup + APK build
 docs/         Google Drive setup guide

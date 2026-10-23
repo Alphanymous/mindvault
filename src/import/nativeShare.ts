@@ -68,7 +68,7 @@ export function initNativeShare(): () => void {
         if (r.error) toast(r.error, 'error')
       }
     }
-    if (saved) toast(`Saved ${saved} shared item${saved === 1 ? '' : 's'} to your inbox`, 'ok', { label: 'Review', href: '#/inbox' })
+    if (saved) toast(`Saved ${saved} shared item${saved === 1 ? '' : 's'}`, 'ok', { label: 'View', href: '#/library?c=new' })
   }
 
   void drain()

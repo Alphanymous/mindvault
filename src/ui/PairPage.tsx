@@ -31,7 +31,7 @@ export function PairPage({ token }: { token: string }) {
       } catch (e) {
         if (!cancelled) toast(e instanceof Error ? e.message : 'Paired, but the first sync failed', 'warn')
       }
-      if (!cancelled) go({ name: 'inbox' })
+      if (!cancelled) go({ name: 'library', c: 'new' })
     })()
     return () => {
       cancelled = true

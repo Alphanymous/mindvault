@@ -1,10 +1,10 @@
 import { HostPanel, PeerPanel } from './PairPanels'
 import { href, type Route } from './router'
 import { AboutTab } from './settings/AboutTab'
-import { AiTab } from './settings/AiTab'
 import { CaptureTab } from './settings/CaptureTab'
 import { DataTab } from './settings/DataTab'
 import { DriveCard } from './settings/DriveCard'
+import { FolderCard } from './settings/FolderCard'
 import { GeneralTab } from './settings/GeneralTab'
 import { Icon } from './Icon'
 
@@ -14,7 +14,6 @@ const TABS = [
   { id: 'general', label: 'General', icon: 'settings' },
   { id: 'sync', label: 'Sync', icon: 'cloud' },
   { id: 'capture', label: 'Capture', icon: 'web' },
-  { id: 'ai', label: 'AI', icon: 'sparkle' },
   { id: 'data', label: 'Data', icon: 'download' },
   { id: 'about', label: 'About', icon: 'graph' },
 ] as const
@@ -23,8 +22,18 @@ function SyncTab() {
   const desktop = !!window.mindvault?.pair
   return (
     <>
-      <DriveCard />
-      {desktop ? <HostPanel /> : <PeerPanel />}
+      {desktop ? (
+        <>
+          <HostPanel />
+          <FolderCard />
+        </>
+      ) : (
+        <PeerPanel />
+      )}
+      <details className="more-ways">
+        <summary>More ways to sync: Google sign-in (advanced)</summary>
+        <DriveCard />
+      </details>
     </>
   )
 }
@@ -50,7 +59,6 @@ export function Settings({ route }: { route?: SettingsRoute }) {
         {tab === 'general' && <GeneralTab />}
         {tab === 'sync' && <SyncTab />}
         {tab === 'capture' && <CaptureTab />}
-        {tab === 'ai' && <AiTab />}
         {tab === 'data' && <DataTab />}
         {tab === 'about' && <AboutTab />}
       </div>

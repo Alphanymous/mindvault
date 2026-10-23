@@ -34,7 +34,7 @@ export function Capture({ onClose, initial = '', dictate = false }: { onClose():
       else if (r.warning) toast(r.warning, 'warn')
     }
     if (saved) {
-      toast(`Saved ${saved} item${saved === 1 ? '' : 's'} to your inbox`, 'ok', { label: 'Review', href: '#/inbox' })
+      toast(`Saved ${saved} item${saved === 1 ? '' : 's'} `, 'ok', { label: 'View', href: '#/library?c=new' })
       onClose()
     }
   }
@@ -89,7 +89,7 @@ export function Capture({ onClose, initial = '', dictate = false }: { onClose():
           <span className="muted small hide-mobile">Ctrl+Enter to save</span>
           <span className="spacer" />
           <button className="btn primary" disabled={busy || (!text.trim() && !files.length)} onClick={save}>
-            {busy ? 'Saving…' : 'Save to inbox'}
+            {busy ? 'Saving…' : 'Save'}
           </button>
         </div>
       </div>

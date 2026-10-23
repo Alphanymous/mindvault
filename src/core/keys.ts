@@ -1,4 +1,4 @@
-/** Vim-style key sequences ("g i" = go to inbox) with a timeout between keys. Pure, so it is unit tested. */
+/** Vim-style key sequences ("g l" = go to library) with a timeout between keys. Pure, so it is unit tested. */
 
 export interface Sequencer<A extends string> {
   /** Feed one key press; returns the action when a sequence completes, otherwise null. */
@@ -37,7 +37,7 @@ export function createSequencer<A extends string>(map: Record<string, A>, timeou
 
 export type ShortcutAction =
   | 'home'
-  | 'inbox'
+  | 'fresh'
   | 'library'
   | 'graph'
   | 'prompts'
@@ -51,7 +51,7 @@ export type ShortcutAction =
 
 export const SHORTCUTS: Record<string, ShortcutAction> = {
   'g h': 'home',
-  'g i': 'inbox',
+  'g n': 'fresh',
   'g l': 'library',
   'g g': 'graph',
   'g p': 'prompts',
@@ -70,7 +70,7 @@ export const SHORTCUT_HELP: { keys: string; label: string }[] = [
   { keys: 'n', label: 'New note' },
   { keys: 'p', label: 'New prompt' },
   { keys: 'g h', label: 'Go to Home' },
-  { keys: 'g i', label: 'Go to Inbox' },
+  { keys: 'g n', label: 'New items (last 7 days, unopened)' },
   { keys: 'g l', label: 'Go to Library' },
   { keys: 'g p', label: 'Go to Prompts' },
   { keys: 'g g', label: 'Go to Graph' },

@@ -111,16 +111,16 @@ export async function createItem(input: NewItemInput): Promise<Item> {
     blobId = id
     await blobsDb.put({ id, mime: input.mime ?? input.blob.type ?? 'application/octet-stream', data: input.blob, updatedAt: now })
   }
+  // Captures file themselves: the suggested folder and tags are applied straight away.
   const item: Item = {
     id,
     type: suggestion.type,
     title,
     content: input.content,
     url: input.url,
-    folder: input.organized ? (input.folder ?? '') : '',
-    tags: input.organized ? (input.tags ?? []) : [],
-    status: input.organized ? 'organized' : 'inbox',
-    suggestion: input.organized ? undefined : suggestion,
+    folder: input.organized ? (input.folder ?? '') : suggestion.folder,
+    tags: input.organized ? (input.tags ?? []) : suggestion.tags,
+    status: 'organized',
     blobId,
     mime: input.mime,
     fileName: input.fileName,
@@ -175,9 +175,13 @@ export async function acceptSuggestion(id: string, override: Partial<Pick<Item, 
   })
 }
 
-export async function acceptAllInbox(minConfidence = 0) {
-  const pending = state.items.filter((i) => !i.deleted && i.status === 'inbox' && i.suggestion && i.suggestion.confidence >= minConfidence)
-  for (const it of pending) await acceptSuggestion(it.id)
+/** Files items still waiting in the old inbox (from earlier versions or older synced devices). */
+export async function fileWaitingItems() {
+  const pending = state.items.filter((i) => !i.deleted && i.status === 'inbox')
+  for (const it of pending) {
+    if (it.suggestion) await acceptSuggestion(it.id)
+    else await updateItem(it.id, { status: 'organized' })
+  }
   return pending.length
 }
 

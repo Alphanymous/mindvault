@@ -22,11 +22,11 @@ export interface Collection {
 }
 
 export const BUILTIN_COLLECTIONS: Collection[] = [
+  { id: 'new', name: 'New', icon: 'bolt', builtin: true, query: { days: 7, unread: true } },
   { id: 'pinned', name: 'Pinned', icon: 'sparkle', builtin: true, query: { pinned: true } },
-  { id: 'unread-web', name: 'Unread web clips', icon: 'web', builtin: true, query: { types: ['web'], unread: true } },
   { id: 'this-week', name: 'This week', icon: 'refresh', builtin: true, query: { days: 7 } },
+  { id: 'unread-web', name: 'To read', icon: 'web', builtin: true, query: { types: ['web'], unread: true } },
   { id: 'pdfs', name: 'PDFs', icon: 'pdf', builtin: true, query: { types: ['pdf'] } },
-  { id: 'all-prompts', name: 'All prompts', icon: 'prompt', builtin: true, query: { types: ['prompt'] } },
 ]
 
 export interface CollectionContext {

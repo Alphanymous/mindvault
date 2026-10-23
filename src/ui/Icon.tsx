@@ -69,7 +69,29 @@ const ICONS: Record<string, ReactNode> = {
   download: P('M12 4v11M7 11l5 5 5-5M5 20h14'),
   sparkle: P('M12 3l1.9 5.3L19 10l-5.1 1.7L12 17l-1.9-5.3L5 10l5.1-1.7z'),
   back: P('M15 5l-7 7 7 7'),
+  target: (
+    <>
+      {C(12, 12, 7)}
+      {C(12, 12, 2)}
+      {P('M12 2v3M12 19v3M2 12h3M19 12h3')}
+    </>
+  ),
+  spin: P('M20 12a8 8 0 1 1-2.6-5.9M20 4v5h-5'),
   upload: P('M12 16V5M7 9l5-5 5 5M5 20h14'),
+  bolt: P('M13 2L4.5 13.5H11L10 22l8.5-11.5H12z'),
+  home: P('M4 10.5L12 4l8 6.5V19a1 1 0 0 1-1 1h-4.5v-5.5h-5V20H5a1 1 0 0 1-1-1z'),
+  clock: (
+    <>
+      {C(12, 12, 8.5)}
+      {P('M12 7.5V12l3 2')}
+    </>
+  ),
+  help: (
+    <>
+      {C(12, 12, 9)}
+      {P('M9.6 9.3a2.5 2.5 0 0 1 4.8.9c0 1.7-2.4 2.1-2.4 3.6M12 17h.01')}
+    </>
+  ),
 }
 
 export type IconName = keyof typeof ICONS

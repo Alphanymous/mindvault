@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#201808"/><stop offset="1" stop-color="#0b0a08"/></linearGradient>
-    <linearGradient id="gold" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffe08a"/><stop offset=".55" stop-color="#f2b632"/><stop offset="1" stop-color="#c98a12"/></linearGradient>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0f1b33"/><stop offset="1" stop-color="#060a12"/></linearGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#3d8bff"/><stop offset="1" stop-color="#1ee59a"/></linearGradient>
   </defs><rect width="512" height="512" rx="112" fill="url(#bg)"/>
   <circle cx="256" cy="256" r="196" fill="none" stroke="url(#gold)" stroke-width="16"/>
   <g stroke="url(#gold)" stroke-width="8" stroke-linecap="round" opacity=".85"><line x1="256.0" y1="88.0" x2="256.0" y2="112.0"/><line x1="340.0" y1="110.5" x2="333.0" y2="122.6"/><line x1="401.5" y1="172.0" x2="389.4" y2="179.0"/><line x1="424.0" y1="256.0" x2="400.0" y2="256.0"/><line x1="401.5" y1="340.0" x2="389.4" y2="333.0"/><line x1="340.0" y1="401.5" x2="333.0" y2="389.4"/><line x1="256.0" y1="424.0" x2="256.0" y2="400.0"/><line x1="172.0" y1="401.5" x2="179.0" y2="389.4"/><line x1="110.5" y1="340.0" x2="122.6" y2="333.0"/><line x1="88.0" y1="256.0" x2="112.0" y2="256.0"/><line x1="110.5" y1="172.0" x2="122.6" y2="179.0"/><line x1="172.0" y1="110.5" x2="179.0" y2="122.6"/></g>
@@ -10,4 +10,5 @@
   </g>
   <circle cx="256" cy="196" r="34" fill="url(#gold)"/>
   <circle cx="198" cy="296" r="26" fill="url(#gold)"/>
-  <circle cx="314" cy="296" r="26" fill="url(#gold)"/></svg>
+  <circle cx="314" cy="296" r="26" fill="url(#gold)"/>
+  <circle cx="256" cy="60" r="17" fill="#ff4060"/></svg>

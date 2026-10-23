@@ -23,6 +23,8 @@ function useGoogleSession() {
   return [session, () => setSession(sessionInfo())] as const
 }
 
+const BAKED_CLIENT_ID = !!(import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined)
+
 export function DriveCard() {
   const { settings } = useAppState()
   const [session, refresh] = useGoogleSession()
@@ -67,7 +69,7 @@ export function DriveCard() {
         password is never typed into Mindvault. Only this app can open that folder, and it does not show up in Drive&rsquo;s file list.
       </p>
 
-      <details className="guide" open={guideOpen} onToggle={(e) => setGuideOpen((e.target as HTMLDetailsElement).open)}>
+      {!BAKED_CLIENT_ID && <details className="guide" open={guideOpen} onToggle={(e) => setGuideOpen((e.target as HTMLDetailsElement).open)}>
         <summary>One-time setup (about 5 minutes, free)</summary>
         <Steps>
           <Step done={saved} title="Create a Google Cloud project">
@@ -90,17 +92,17 @@ export function DriveCard() {
             <span className="muted small">Using the desktop app, the browser version and the phone browser too? Add each address you open Mindvault from.</span>
           </Step>
         </Steps>
-      </details>
+      </details>}
 
-      <label className="field">
+      {!BAKED_CLIENT_ID && <label className="field">
         <span>Client ID (from step 4)</span>
         <input value={clientId} onChange={(e) => setClientId(e.target.value)} placeholder="123456789012-abc123….apps.googleusercontent.com" spellCheck={false} aria-invalid={clientId !== '' && !check.ok} />
-      </label>
-      {clientId !== '' && !check.ok && <p className="hint bad">{check.reason}</p>}
-      {check.ok && clientId.trim() !== settings.googleClientId && <p className="hint">Looks right. Save it to continue.</p>}
+      </label>}
+      {!BAKED_CLIENT_ID && clientId !== '' && !check.ok && <p className="hint bad">{check.reason}</p>}
+      {!BAKED_CLIENT_ID && check.ok && clientId.trim() !== settings.googleClientId && <p className="hint">Looks right. Save it to continue.</p>}
 
       <div className="row">
-        <button className="btn" disabled={!check.ok || clientId.trim() === settings.googleClientId} onClick={() => void saveId()}>Save client ID</button>
+        {!BAKED_CLIENT_ID && <button className="btn" disabled={!check.ok || clientId.trim() === settings.googleClientId} onClick={() => void saveId()}>Save client ID</button>}
         {!session.signedIn && <TestButton primary label="Sign in with Google" disabled={!saved} run={async () => { const r = await testDrive(); refresh(); return r }} />}
         {session.signedIn && (
           <>

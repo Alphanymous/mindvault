@@ -8,6 +8,13 @@ contextBridge.exposeInMainWorld('mindvault', {
     setEnabled: (enabled) => ipcRenderer.invoke('mv:pair:set', !!enabled),
     reset: () => ipcRenderer.invoke('mv:pair:reset'),
   },
+  folder: {
+    get: () => ipcRenderer.invoke('mv:folder:get'),
+    choose: () => ipcRenderer.invoke('mv:folder:choose'),
+    use: (path) => ipcRenderer.invoke('mv:folder:use', path),
+    clear: () => ipcRenderer.invoke('mv:folder:clear'),
+    rpc: (msg) => ipcRenderer.invoke('mv:folder:rpc', msg),
+  },
   // Requests from the phone / browser clipper arrive here; the page answers with its own data.
   onRpc: (handler) => {
     ipcRenderer.removeAllListeners('mv:rpc')

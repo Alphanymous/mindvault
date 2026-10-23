@@ -16,7 +16,7 @@ export function registerPeerHost() {
       if (!clip) return { ok: false, error: 'Nothing readable to save' }
       const r = await captureClip(clip)
       if (!r.item) return { ok: false, error: r.error ?? 'Could not save' }
-      toast(`Clipped “${r.item.title}”`, 'ok', { label: 'Review', href: '#/inbox' })
+      toast(`Clipped “${r.item.title}”`, 'ok', { label: 'Open', href: `#/item/${r.item.id}` })
       return { ok: true, title: r.item.title }
     }
     return handleRpc(localSide, msg)

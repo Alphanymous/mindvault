@@ -1,18 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { SHORTCUTS, createSequencer } from '../core/keys'
 import { applyCollection } from '../core/collections'
-import { useAppState } from '../data/store'
+import type { Item } from '../core/types'
+import { fileWaitingItems, useAppState } from '../data/store'
 import { allCollections, useUsage } from '../data/usage'
 import { captureFile, captureShared } from '../import/capture'
 import { initNativeShare } from '../import/nativeShare'
 import { syncNow } from '../sync/drive'
 import { isSignedIn } from '../sync/google'
+import { startFolderAutoSync } from '../sync/folder'
 import { syncPeerNow } from '../sync/peer'
 import { Capture } from './Capture'
 import { GraphView } from './GraphView'
 import { Home } from './Home'
 import { Icon } from './Icon'
-import { Inbox } from './Inbox'
 import { ItemView } from './ItemView'
 import { Library } from './Library'
 import { PairPage } from './PairPage'
@@ -23,6 +24,7 @@ import { ShortcutsHelp } from './ShortcutsHelp'
 import { runShortcut, type AppActions } from './commands'
 import { href, useRoute, type Route } from './router'
 import { dismiss, toast, useToasts } from './toast'
+import { TYPE_META } from './util'
 
 const AUTO_SYNC_MS = 5 * 60_000
 const LONG_PRESS_MS = 450
@@ -36,20 +38,26 @@ const isTyping = (t: EventTarget | null) => t instanceof HTMLElement && !!t.clos
 
 export function App() {
   const route = useRoute()
-  const { settings, items, folders } = useAppState()
+  const { settings, items } = useAppState()
   const usage = useUsage()
   const [palette, setPalette] = useState<string | null>(null)
   const [capture, setCapture] = useState<CaptureState | null>(null)
   const [help, setHelp] = useState(false)
   const toasts = useToasts()
 
-  // theme
+  // theme: always write a concrete data-theme so the stylesheet needs no media query
   useEffect(() => {
     const root = document.documentElement
-    if (settings.theme === 'system') root.removeAttribute('data-theme')
-    else root.setAttribute('data-theme', settings.theme)
-    const meta = document.querySelector('meta[name="theme-color"]')
-    meta?.setAttribute('content', settings.theme === 'light' ? '#faf7ef' : '#0b0a08')
+    const mq = matchMedia('(prefers-color-scheme: light)')
+    const apply = () => {
+      const light = settings.theme === 'light' || (settings.theme === 'system' && mq.matches)
+      root.setAttribute('data-theme', light ? 'light' : 'dark')
+      const bg = getComputedStyle(root).getPropertyValue('--bg').trim()
+      document.querySelector('meta[name="theme-color"]')?.setAttribute('content', bg || '#060a12')
+    }
+    apply()
+    mq.addEventListener('change', apply)
+    return () => mq.removeEventListener('change', apply)
   }, [settings.theme])
 
   const actions: AppActions = useMemo(
@@ -85,7 +93,7 @@ export function App() {
       if (files.length) {
         e.preventDefault()
         for (const f of files) await captureFile(f)
-        toast(`Saved ${files.length} file${files.length > 1 ? 's' : ''} to your inbox`, 'ok', { label: 'Review', href: '#/inbox' })
+        toast(`Saved ${files.length} file${files.length > 1 ? 's' : ''}`, 'ok', { label: 'View', href: '#/library?c=new' })
       } else if (text.trim()) {
         e.preventDefault()
         actionsRef.current.openCapture({ text })
@@ -96,7 +104,7 @@ export function App() {
       e.preventDefault()
       const files = Array.from(e.dataTransfer.files)
       for (const f of files) await captureFile(f)
-      toast(`Saved ${files.length} file${files.length > 1 ? 's' : ''} to your inbox`, 'ok', { label: 'Review', href: '#/inbox' })
+      toast(`Saved ${files.length} file${files.length > 1 ? 's' : ''}`, 'ok', { label: 'View', href: '#/library?c=new' })
     }
     const onDragOver = (e: DragEvent) => e.preventDefault()
     // Android widget / app shortcuts send "mv:quick" with a mode
@@ -130,7 +138,7 @@ export function App() {
     if (q.has('url') || q.has('text') || q.has('title')) {
       history.replaceState(null, '', location.pathname + location.hash)
       void captureShared({ title: q.get('title'), text: q.get('text'), url: q.get('url') }).then((r) => {
-        if (r.item) toast('Saved to your inbox', r.warning ? 'warn' : 'ok', { label: 'Review', href: '#/inbox' })
+        if (r.item) toast('Saved', r.warning ? 'warn' : 'ok', { label: 'View', href: '#/library?c=new' })
         else if (r.error) toast(r.error, 'error')
       })
     }
@@ -168,6 +176,15 @@ export function App() {
     return () => { stop = true; clearTimeout(first); clearInterval(iv); document.removeEventListener('visibilitychange', onVisible); window.removeEventListener('online', onVisible) }
   }, [settings.peerAutoSync, settings.peerUrl, settings.peerToken])
 
+  // items saved by older versions (or older synced devices) still sit in the old inbox: file them
+  const waiting = items.some((i) => !i.deleted && i.status === 'inbox')
+  useEffect(() => {
+    if (waiting) void fileWaitingItems()
+  }, [waiting])
+
+  // folder sync (desktop): runs while a folder is chosen
+  useEffect(() => startFolderAutoSync(), [])
+
   // long-press on the + button = hold to speak
   const pressTimer = useRef(0)
   const longPressed = useRef(false)
@@ -180,15 +197,16 @@ export function App() {
   }, [])
   const fabUp = useCallback(() => window.clearTimeout(pressTimer.current), [])
 
-  const inboxCount = items.filter((i) => !i.deleted && i.status === 'inbox').length
-  const tree = buildTree(folders)
   const collections = allCollections(usage)
   const live = useMemo(() => items.filter((i) => !i.deleted), [items])
+  const byId = useMemo(() => new Map(live.map((i) => [i.id, i])), [live])
   const seen = useMemo(() => new Set(usage.seen), [usage.seen])
   const collectionCounts = useMemo(
     () => Object.fromEntries(collections.map((c) => [c.id, applyCollection(live, c.query, { seen, now: Date.now() }).length])),
     [collections, live, seen],
   )
+  const freshCount = collectionCounts.new ?? 0
+  const recent = usage.recent.map((id) => byId.get(id)).filter((i): i is Item => !!i).slice(0, 5)
 
   return (
     <div className="shell">
@@ -203,39 +221,43 @@ export function App() {
           <Icon name="plus" size={17} /> Capture
         </button>
         <nav>
-          <NavLink route={{ name: 'home' }} active={route.name === 'home'} icon="graph" label="Home" />
-          <NavLink route={{ name: 'inbox' }} active={route.name === 'inbox'} icon="inbox" label="Inbox" badge={inboxCount} />
-          <NavLink route={{ name: 'library' }} active={route.name === 'library' && !route.folder && !route.type && !route.c && !route.tag} icon="library" label="Library" />
+          <NavLink route={{ name: 'home' }} active={route.name === 'home'} icon="home" label="Home" />
+          <NavLink route={{ name: 'library' }} active={route.name === 'library' && !route.c} icon="library" label="Library" />
           <NavLink route={{ name: 'prompts' }} active={route.name === 'prompts'} icon="prompt" label="Prompts" />
           <NavLink route={{ name: 'graph' }} active={route.name === 'graph'} icon="graph" label="Graph" />
         </nav>
-        <div className="folders">
-          <h5>Collections</h5>
-          <ul className="tree">
+        <div className="side-group">
+          <h5>Smart views</h5>
+          <div className="smart-chips">
             {collections.map((c) => (
-              <li key={c.id}>
-                <a href={href({ name: 'library', c: c.id })} className={route.name === 'library' && route.c === c.id ? 'on' : ''}>
-                  <Icon name={c.icon} size={15} /> {c.name}
-                  <small className="count">{collectionCounts[c.id] ?? 0}</small>
-                </a>
-              </li>
+              <a key={c.id} href={href({ name: 'library', c: c.id })} className={`smart-chip ${route.name === 'library' && route.c === c.id ? 'on' : ''}`}>
+                <Icon name={c.icon} size={13} /> {c.name}
+                {!!collectionCounts[c.id] && <small>{collectionCounts[c.id]}</small>}
+              </a>
             ))}
-          </ul>
+          </div>
         </div>
-        {tree.length > 0 && (
-          <div className="folders">
-            <h5>Folders</h5>
-            <FolderTree nodes={tree} current={route.name === 'library' ? route.folder : undefined} />
+        {recent.length > 0 && (
+          <div className="side-group">
+            <h5>Recent</h5>
+            <ul className="recent-list">
+              {recent.map((i) => (
+                <li key={i.id}>
+                  <a href={href({ name: 'item', id: i.id })} className={route.name === 'item' && route.id === i.id ? 'on' : ''} data-type={i.type}>
+                    <Icon name={TYPE_META[i.type].icon} size={14} /> <span>{i.title}</span>
+                  </a>
+                </li>
+              ))}
+            </ul>
           </div>
         )}
         <div className="spacer" />
-        <button className="nav-link help-link" onClick={() => setHelp(true)}><Icon name="search" size={18} /> <span>Shortcuts</span> <kbd>?</kbd></button>
+        <button className="nav-link help-link" onClick={() => setHelp(true)}><Icon name="help" size={18} /> <span>Shortcuts</span> <kbd>?</kbd></button>
         <NavLink route={{ name: 'settings' }} active={route.name === 'settings'} icon="settings" label="Settings" />
       </aside>
 
       <main className="main">
         {route.name === 'home' && <Home onSearch={() => setPalette('')} onCapture={() => actions.openCapture()} />}
-        {route.name === 'inbox' && <Inbox onCapture={() => actions.openCapture()} />}
         {route.name === 'prompts' && <PromptsPage />}
         {route.name === 'library' && <Library route={route} />}
         {route.name === 'graph' && <GraphView key={route.focus ?? 'all'} focus={route.focus} />}
@@ -245,7 +267,7 @@ export function App() {
       </main>
 
       <nav className="tabbar" aria-label="Main">
-        <TabLink route={{ name: 'home' }} active={route.name === 'home' || route.name === 'inbox'} icon="graph" label="Home" badge={inboxCount} />
+        <TabLink route={{ name: 'home' }} active={route.name === 'home'} icon="home" label="Home" badge={freshCount} />
         <TabLink route={{ name: 'library' }} active={route.name === 'library' || route.name === 'item' || route.name === 'prompts'} icon="library" label="Library" />
         <button
           className="fab"
@@ -294,40 +316,5 @@ function TabLink({ route, active, icon, label, badge }: { route: Route; active: 
       <span className="tab-icon"><Icon name={icon} size={21} />{!!badge && <em className="badge">{badge}</em>}</span>
       <span>{label}</span>
     </a>
-  )
-}
-
-interface TreeNode { name: string; path: string; children: TreeNode[] }
-
-function buildTree(folders: string[]): TreeNode[] {
-  const root: TreeNode[] = []
-  for (const path of folders) {
-    const parts = path.split('/')
-    let level = root
-    parts.forEach((name, i) => {
-      const p = parts.slice(0, i + 1).join('/')
-      let node = level.find((n) => n.path === p)
-      if (!node) {
-        node = { name, path: p, children: [] }
-        level.push(node)
-      }
-      level = node.children
-    })
-  }
-  return root
-}
-
-function FolderTree({ nodes, current }: { nodes: TreeNode[]; current?: string }) {
-  return (
-    <ul className="tree">
-      {nodes.map((n) => (
-        <li key={n.path}>
-          <a href={href({ name: 'library', folder: n.path })} className={current === n.path ? 'on' : ''}>
-            <Icon name="folder" size={15} /> {n.name}
-          </a>
-          {n.children.length > 0 && <FolderTree nodes={n.children} current={current} />}
-        </li>
-      ))}
-    </ul>
   )
 }

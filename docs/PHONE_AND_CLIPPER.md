@@ -13,7 +13,7 @@ Security: the code is a random 128-bit secret; every request must carry it. Traf
 
 ## 2. Share sheet (Android app)
 
-Install the APK, then in Chrome, a file manager, WhatsApp, anywhere: **Share → Mindvault**. Links become web clips (title and readable text are fetched), text becomes a note or prompt, PDFs and text files are imported with their text extracted. Everything lands in the inbox. Files over 40 MB are skipped.
+Install the APK, then in Chrome, a file manager, WhatsApp, anywhere: **Share → Mindvault**. Links become web clips (title and readable text are fetched), text becomes a note or prompt, PDFs and text files are imported with their text extracted. Everything is filed automatically and shows under New. Files over 40 MB are skipped.
 
 The installed PWA gets the same share target on Android Chrome when the site is hosted over https.
 

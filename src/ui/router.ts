@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react'
 
 export type Route =
   | { name: 'home' }
-  | { name: 'inbox' }
   | { name: 'prompts' }
   | { name: 'library'; folder?: string; type?: string; tag?: string; c?: string }
   | { name: 'graph'; focus?: string }
@@ -16,8 +15,8 @@ export function parseHash(hash: string): Route {
   const q = new URLSearchParams(query)
   const [head, ...rest] = path.split('/')
   switch (head) {
-    case 'inbox':
-      return { name: 'inbox' }
+    case 'inbox': // old links from earlier versions
+      return { name: 'library', c: 'new' }
     case 'prompts':
       return { name: 'prompts' }
     case 'library':
@@ -54,8 +53,6 @@ export function href(route: Route): string {
       return route.tab ? `#/settings?tab=${route.tab}` : '#/settings'
     case 'pair':
       return `#/pair/${route.token}`
-    case 'inbox':
-      return '#/inbox'
     case 'prompts':
       return '#/prompts'
     default:

@@ -13,8 +13,22 @@ declare global {
         reset(): Promise<PairInfo>
       }
       onRpc?(handler: (msg: unknown) => Promise<unknown>): void
+      folder?: {
+        get(): Promise<FolderInfo>
+        choose(): Promise<FolderInfo>
+        use(path: string): Promise<FolderInfo>
+        clear(): Promise<FolderInfo>
+        rpc(msg: unknown): Promise<Record<string, unknown>>
+      }
     }
   }
+}
+
+export interface FolderInfo {
+  /** The chosen sync folder, or null. */
+  path: string | null
+  /** Cloud-synced folders found on this PC. */
+  candidates: { label: string; path: string }[]
 }
 
 export interface PairInfo {

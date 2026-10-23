@@ -81,7 +81,7 @@ export function HostPanel() {
   )
 }
 
-/** Desktop app: bookmarklet that sends the page you are viewing to the inbox. */
+/** Desktop app: bookmarklet that sends the page you are viewing to Mindvault. */
 export function ClipperPanel() {
   const api = window.mindvault?.pair
   const [info, setInfo] = useState<PairInfo | null>(null)
@@ -101,7 +101,7 @@ export function ClipperPanel() {
     <section className="panel settings-section">
       <h3><Icon name="web" size={18} /> Browser clipper</h3>
       <p className="muted">
-        Save the page you are looking at (or just the text you selected) from Chrome, Edge or Firefox straight into your inbox, including pages that need you to be logged in.
+        Save the page you are looking at (or just the text you selected) from Chrome, Edge or Firefox straight into Mindvault, including pages that need you to be logged in.
         Drag this button to your bookmarks bar. Keep Mindvault running while you clip.
       </p>
       <div className="row">

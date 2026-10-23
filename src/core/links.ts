@@ -70,7 +70,7 @@ export interface GraphOptions {
 
 export const DEFAULT_GRAPH_OPTIONS: GraphOptions = {
   showTags: true,
-  showFolders: false,
+  showFolders: true,
   showGhosts: true,
   hideOrphans: false,
 }

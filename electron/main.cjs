@@ -1,10 +1,11 @@
-const { app, BrowserWindow, ipcMain, net, shell, Menu } = require('electron')
+const { app, BrowserWindow, dialog, ipcMain, net, shell, Menu } = require('electron')
 const http = require('node:http')
 const os = require('node:os')
 const path = require('node:path')
 const fs = require('node:fs')
 const crypto = require('node:crypto')
 const { createRequestHandler } = require('./lan-server.cjs')
+const { createFolderRpc, detectCloudFolders } = require('./folder-sync.cjs')
 
 // The renderer is served from http://localhost:<port> instead of file:// so that
 // Google Sign-In (which needs a registered http origin) and the service worker work.
@@ -22,12 +23,12 @@ let lanPort = LAN_PORT
 // ---- pairing config: { enabled, token } stored next to the app data ----
 const configFile = () => path.join(app.getPath('userData'), 'pairing.json')
 const newToken = () => crypto.randomBytes(16).toString('base64url')
-let config = { enabled: false, token: '' }
+let config = { enabled: false, token: '', syncFolder: '' }
 
 function loadConfig() {
   try {
     const raw = JSON.parse(fs.readFileSync(configFile(), 'utf8'))
-    if (typeof raw.token === 'string' && raw.token.length >= 16) config = { enabled: !!raw.enabled, token: raw.token }
+    if (typeof raw.token === 'string' && raw.token.length >= 16) config = { enabled: !!raw.enabled, token: raw.token, syncFolder: typeof raw.syncFolder === 'string' ? raw.syncFolder : '' }
   } catch {
     /* first run */
   }
@@ -142,6 +143,48 @@ ipcMain.handle('mv:pair:set', async (event, enabled) => {
   else stopLanServer()
   return pairInfo()
 })
+// ---- folder sync: a folder kept in sync by Google Drive / OneDrive / Dropbox / Nextcloud ----
+const folderInfo = () => ({ path: config.syncFolder || null, candidates: detectCloudFolders() })
+const isDirectory = (p) => {
+  try {
+    return typeof p === 'string' && fs.statSync(p).isDirectory()
+  } catch {
+    return false
+  }
+}
+ipcMain.handle('mv:folder:get', (event) => (fromMainWindow(event) ? folderInfo() : null))
+ipcMain.handle('mv:folder:choose', async (event) => {
+  if (!fromMainWindow(event)) return null
+  const res = await dialog.showOpenDialog(mainWindow, {
+    title: 'Choose a folder that your devices share',
+    properties: ['openDirectory', 'createDirectory'],
+  })
+  if (!res.canceled && res.filePaths[0] && isDirectory(res.filePaths[0])) {
+    config.syncFolder = res.filePaths[0]
+    saveConfig()
+  }
+  return folderInfo()
+})
+ipcMain.handle('mv:folder:use', (event, p) => {
+  if (!fromMainWindow(event)) return null
+  if (isDirectory(p)) {
+    config.syncFolder = p
+    saveConfig()
+  }
+  return folderInfo()
+})
+ipcMain.handle('mv:folder:clear', (event) => {
+  if (!fromMainWindow(event)) return null
+  config.syncFolder = ''
+  saveConfig()
+  return folderInfo()
+})
+ipcMain.handle('mv:folder:rpc', async (event, msg) => {
+  if (!fromMainWindow(event)) return { ok: false, error: 'not allowed' }
+  if (!config.syncFolder || !isDirectory(config.syncFolder)) return { ok: false, error: 'The sync folder is not available. Is it connected?' }
+  return createFolderRpc(config.syncFolder)(msg)
+})
+
 ipcMain.handle('mv:pair:reset', (event) => {
   if (!fromMainWindow(event)) return null
   config.token = newToken()
@@ -155,7 +198,7 @@ function createWindow() {
     height: 820,
     minWidth: 420,
     minHeight: 560,
-    backgroundColor: '#0b0a08',
+    backgroundColor: '#060a12',
     title: 'Mindvault',
     autoHideMenuBar: true,
     webPreferences: {

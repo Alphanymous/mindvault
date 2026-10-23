@@ -1,4 +1,5 @@
 import { useMemo, useRef, useState } from 'react'
+import { buildRegions } from '../core/clusters'
 import { buildGraph, DEFAULT_GRAPH_OPTIONS, type GraphOptions } from '../core/links'
 import type { GraphNode, ItemType } from '../core/types'
 import { createItem, useAppState } from '../data/store'
@@ -7,13 +8,18 @@ import { Icon } from './Icon'
 import { go } from './router'
 import { TYPE_META, useDebounced } from './util'
 
+const SHAPE_HINT: Record<ItemType, string> = { note: 'dot', web: 'ring', pdf: 'double ring', prompt: 'cross', file: 'square' }
+
 export function GraphView({ focus }: { focus?: string }) {
   const { items } = useAppState()
   const [filter, setFilter] = useState('')
-  const [opts, setOpts] = useState<Omit<GraphOptions, 'filter' | 'types'>>(DEFAULT_GRAPH_OPTIONS)
+  // tags and unwritten links are opt-in: they double the number of stars
+  const [opts, setOpts] = useState<Omit<GraphOptions, 'filter' | 'types'>>({ ...DEFAULT_GRAPH_OPTIONS, showTags: false, showGhosts: false })
   const [types, setTypes] = useState<Set<ItemType>>(new Set(Object.keys(TYPE_META) as ItemType[]))
-  const [panelOpen, setPanelOpen] = useState(() => window.innerWidth > 820)
+  const [panelOpen, setPanelOpen] = useState(false)
+  const [atlasOpen, setAtlasOpen] = useState(() => window.innerWidth > 820)
   const [selected, setSelected] = useState<string | null>(focus ?? null)
+  const [spin, setSpin] = useState(true)
   const handle = useRef<GraphHandle>(null)
   const q = useDebounced(filter, 180)
 
@@ -21,6 +27,7 @@ export function GraphView({ focus }: { focus?: string }) {
     () => buildGraph(items, { ...opts, filter: q, types: types.size === 5 ? undefined : types }),
     [items, opts, q, types],
   )
+  const regions = useMemo(() => buildRegions(data.nodes), [data])
   const node = data.nodes.find((n) => n.id === selected) ?? null
   const live = items.filter((i) => !i.deleted)
   const item = node && node.kind === 'item' ? live.find((i) => i.id === node.id) : undefined
@@ -69,32 +76,55 @@ export function GraphView({ focus }: { focus?: string }) {
       <div className="graph-zoom glass">
         <button className="icon-btn" onClick={() => handle.current?.zoomBy(1.4)} aria-label="Zoom in"><Icon name="plus" /></button>
         <button className="icon-btn" onClick={() => handle.current?.zoomBy(1 / 1.4)} aria-label="Zoom out"><Icon name="minus" /></button>
-        <button className="icon-btn" onClick={() => handle.current?.fit()} aria-label="Fit to screen"><Icon name="fit" /></button>
+        <button className="icon-btn" onClick={() => handle.current?.fit()} aria-label="Show everything" title="Show everything"><Icon name="fit" /></button>
+        <button className="icon-btn" onClick={() => handle.current?.focusSelected()} disabled={!selected} aria-label="Fly to selected" title="Fly to selected"><Icon name="target" /></button>
+        <button className={`icon-btn ${spin ? 'on' : ''}`} onClick={() => setSpin(handle.current?.toggleSpin() ?? false)} aria-pressed={spin} aria-label="Slow rotation" title="Slow rotation"><Icon name="spin" /></button>
       </div>
 
-      <div className={`graph-panel glass ${panelOpen ? '' : 'closed'}`}>
-        <button className="panel-toggle" onClick={() => setPanelOpen(!panelOpen)}>
-          {panelOpen ? 'Hide options' : 'Options'}
-        </button>
-        {panelOpen && (
-          <>
-            <h4>Show</h4>
-            {flag('showTags', 'Tags')}
-            {flag('showFolders', 'Folders')}
-            {flag('showGhosts', 'Unwritten links')}
-            {flag('hideOrphans', 'Hide unconnected')}
-            <h4>Types</h4>
-            <div className="legend">
-              {(Object.keys(TYPE_META) as ItemType[]).map((t) => (
-                <button key={t} className={`legend-chip ${types.has(t) ? 'on' : ''}`} data-type={t} onClick={() => toggleType(t)}>
-                  <i /> {TYPE_META[t].plural}
-                </button>
+      {regions.length > 0 && (
+        <nav className={`atlas glass ${atlasOpen ? '' : 'closed'}`} aria-label="Atlas">
+          <button className="atlas-head" onClick={() => setAtlasOpen(!atlasOpen)} aria-expanded={atlasOpen}>
+            <Icon name="graph" size={14} /> <span>Atlas</span> <small>{regions.length} regions</small>
+          </button>
+          {atlasOpen && (
+            <ul className="atlas-list">
+              <li>
+                <button onClick={() => handle.current?.fit()}><i className="all" /> <span>Whole galaxy</span> <small>{data.nodes.length}</small></button>
+              </li>
+              {regions.map((r) => (
+                <li key={r.name}>
+                  <button onClick={() => handle.current?.focusRegion(r.name)} title="Fly to this region">
+                    <i style={{ background: r.css, boxShadow: `0 0 10px ${r.css}` }} /> <span>{r.name}</span> <small>{r.count}</small>
+                  </button>
+                </li>
               ))}
-            </div>
-            <p className="muted small">{data.nodes.length} nodes · {data.edges.length} connections</p>
-          </>
-        )}
-      </div>
+            </ul>
+          )}
+        </nav>
+      )}
+
+      <button className={`graph-options-btn glass icon-btn ${panelOpen ? 'on' : ''}`} onClick={() => setPanelOpen(!panelOpen)} aria-expanded={panelOpen} aria-label="Graph options" title="Options">
+        <Icon name="settings" size={17} />
+      </button>
+      {panelOpen && (
+        <div className="graph-panel glass">
+          <h4>Show</h4>
+          {flag('showTags', 'Tags')}
+          {flag('showFolders', 'Folders')}
+          {flag('showGhosts', 'Unwritten links')}
+          {flag('hideOrphans', 'Hide unconnected')}
+          <h4>Only these kinds</h4>
+          <div className="legend">
+            {(Object.keys(TYPE_META) as ItemType[]).map((t) => (
+              <button key={t} className={`legend-chip ${types.has(t) ? 'on' : ''}`} onClick={() => toggleType(t)} title={SHAPE_HINT[t]}>
+                <Icon name={TYPE_META[t].icon} size={13} /> {TYPE_META[t].plural}
+              </button>
+            ))}
+          </div>
+          <p className="muted small">Color = region. Shape = kind: dot note, ring web page, double ring PDF, cross prompt, square file.</p>
+          <p className="muted small">{data.nodes.length} stars · {data.edges.length} connections</p>
+        </div>
+      )}
 
       {node && (
         <div className="graph-card glass">

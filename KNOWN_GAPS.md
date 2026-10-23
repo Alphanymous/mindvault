@@ -38,3 +38,11 @@
 - No image attachments inside notes, no canvas/whiteboard, no plugin system, no folder rename/move UI beyond editing the folder field per item.
 - The Windows build is unsigned (SmartScreen warning) and not auto-updating.
 - No automated UI/e2e tests; UI was checked manually in the browser preview.
+
+## v0.3 (new look, no inbox)
+
+- **Verified in headless Chrome against the dev server and in the packaged Windows app with the real vault**: one fixed color set (no palette picker), sidebar without the folder tree (Smart views + Recent), compact Home (New, Jump back in, galaxy preview, prompts), Library topic chips, graph with Atlas (fly to a region) and options behind a button, tags and unwritten links hidden in the graph by default. Mobile layout (390 px) and light theme checked by screenshot.
+- **Inbox removed**: captures are filed into their suggested folder at once. Items still in the old inbox (from v0.2 or an older synced device) are filed automatically when the app opens; old `#/inbox` links open the New view. Checked in the browser; there is no unit test for this because the store needs IndexedDB.
+- An older v0.2 device that syncs with v0.3 still shows its own Inbox for items it captures; v0.3 files them once they arrive.
+- Animations (aurora background, turning edge on the search box, button sheen) are CSS only and stop with the system "reduce motion" setting; their cost on low-end phones is not measured.
+- APK for v0.3 built, not run on a phone.

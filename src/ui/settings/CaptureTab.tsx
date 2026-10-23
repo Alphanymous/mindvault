@@ -52,7 +52,7 @@ export function CaptureTab() {
         )}
 
         <TestButton label="Test page download" run={testClipDownload} disabled={!setup.ready} />
-        <p className="muted small">Pasted links are downloaded, cleaned to readable text and filed in your inbox. If a download fails, the link is still saved.</p>
+        <p className="muted small">Pasted links are downloaded, cleaned to readable text and filed automatically. If a download fails, the link is still saved.</p>
       </Section>
 
       <ClipperPanel />
