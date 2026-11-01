@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { captureFile, captureText, type CaptureResult } from '../import/capture'
+import { captureFile, captureText, captureImageWithOCR, type CaptureResult } from '../import/capture'
 import { Icon } from './Icon'
 import { toast } from './toast'
 import { useDictation } from './useDictation'
@@ -9,8 +9,10 @@ export function Capture({ onClose, initial = '', dictate = false }: { onClose():
   const [files, setFiles] = useState<File[]>([])
   const [busy, setBusy] = useState(false)
   const [drag, setDrag] = useState(false)
+  const [ocrBusy, setOcrBusy] = useState(false)
   const ta = useRef<HTMLTextAreaElement>(null)
   const fileInput = useRef<HTMLInputElement>(null)
+  const cameraInput = useRef<HTMLInputElement>(null)
   const voice = useDictation((chunk) => setText((t) => (t && !t.endsWith(' ') && !t.endsWith('\n') ? t + ' ' : t) + chunk))
 
   useEffect(() => {
@@ -36,6 +38,38 @@ export function Capture({ onClose, initial = '', dictate = false }: { onClose():
     if (saved) {
       toast(`Saved ${saved} item${saved === 1 ? '' : 's'} `, 'ok', { label: 'View', href: '#/library?c=new' })
       onClose()
+    }
+  }
+
+  const handleImageCapture = async (file: File) => {
+    if (ocrBusy) return
+    setOcrBusy(true)
+    try {
+      const result = await captureImageWithOCR(file, 'Screenshot')
+      if (result.item) {
+        toast('Screenshot saved with OCR text', 'ok', { label: 'View', href: '#/library?c=new' })
+        onClose()
+      } else if (result.error) {
+        toast(result.error, 'error')
+      }
+    } finally {
+      setOcrBusy(false)
+    }
+  }
+
+  const triggerCamera = async () => {
+    if (window.mindvault?.captureScreenshot) {
+      try {
+        const result = await window.mindvault.captureScreenshot()
+        if (result && result.blob) {
+          const file = new File([result.blob], result.name || 'screenshot.png', { type: result.mime || 'image/png' })
+          await handleImageCapture(file)
+        }
+      } catch (e) {
+        toast(`Screenshot failed: ${e instanceof Error ? e.message : String(e)}`, 'error')
+      }
+    } else if (cameraInput.current) {
+      cameraInput.current.click()
     }
   }
 
@@ -66,7 +100,7 @@ export function Capture({ onClose, initial = '', dictate = false }: { onClose():
           placeholder="Paste a link to clip a page, paste a prompt, or just write. Drop PDFs and files here."
           rows={6}
         />
-        {voice.listening && <p className="listening"><span className="pulse" /> Listening… {voice.interim && <i className="muted">{voice.interim}</i>}</p>}
+        {voice.listening && <p className="listening"><span className="pulse" /> Listening\u2026 {voice.interim && <i className="muted">{voice.interim}</i>}</p>}
         {voice.error && <p className="small danger-text">{voice.error}</p>}
         {files.length > 0 && (
           <ul className="file-list">
@@ -80,7 +114,11 @@ export function Capture({ onClose, initial = '', dictate = false }: { onClose():
         )}
         <div className="capture-foot">
           <input ref={fileInput} type="file" multiple hidden onChange={(e) => { addFiles(e.target.files); e.target.value = '' }} />
+          <input ref={cameraInput} type="file" accept="image/*" capture="environment" hidden onChange={(e) => { if (e.target.files && e.target.files[0]) handleImageCapture(e.target.files[0]); e.target.value = '' }} />
           <button className="btn" onClick={() => fileInput.current?.click()}><Icon name="upload" size={16} /> Add files</button>
+          <button className="btn" onClick={triggerCamera} disabled={ocrBusy}>
+            <Icon name="camera" size={16} /> {ocrBusy ? 'Processing...' : 'Screenshot'}
+          </button>
           {voice.supported && (
             <button className={`btn ${voice.listening ? 'rec' : ''}`} onClick={() => (voice.listening ? voice.stop() : voice.start())} aria-pressed={voice.listening}>
               <Icon name="sparkle" size={16} /> {voice.listening ? 'Stop' : 'Dictate'}
@@ -89,7 +127,7 @@ export function Capture({ onClose, initial = '', dictate = false }: { onClose():
           <span className="muted small hide-mobile">Ctrl+Enter to save</span>
           <span className="spacer" />
           <button className="btn primary" disabled={busy || (!text.trim() && !files.length)} onClick={save}>
-            {busy ? 'Saving…' : 'Save'}
+            {busy ? 'Saving\u2026' : 'Save'}
           </button>
         </div>
       </div>

@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer } = require('electron')
+const { contextBridge, ipcRenderer, desktopCapturer } = require('electron')
 
 contextBridge.exposeInMainWorld('mindvault', {
   platform: 'electron',
@@ -15,6 +15,7 @@ contextBridge.exposeInMainWorld('mindvault', {
     clear: () => ipcRenderer.invoke('mv:folder:clear'),
     rpc: (msg) => ipcRenderer.invoke('mv:folder:rpc', msg),
   },
+  captureScreenshot: () => ipcRenderer.invoke('mv:capture-screenshot'),
   // Requests from the phone / browser clipper arrive here; the page answers with its own data.
   onRpc: (handler) => {
     ipcRenderer.removeAllListeners('mv:rpc')

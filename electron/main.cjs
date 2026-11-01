@@ -260,6 +260,33 @@ ipcMain.handle('mv:fetch-text', async (_e, url) => {
   return await res.text()
 })
 
+ipcMain.handle('mv:capture-screenshot', async () => {
+  if (!mainWindow) throw new Error('Window not available')
+  
+  const sources = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: 1920, height: 1080 } })
+  
+  if (sources.length === 0) {
+    throw new Error('No screenshot sources available')
+  }
+  
+  const source = sources[0]
+  const image = source.thumbnail
+  
+  if (!image) {
+    throw new Error('Could not capture screenshot')
+  }
+  
+  const buffer = image.toPNG()
+  const blob = new Blob([buffer], { type: 'image/png' })
+  
+  return {
+    blob: blob,
+    name: `screenshot-${Date.now()}.png`,
+    mime: 'image/png',
+    size: buffer.length
+  }
+})
+
 const gotLock = app.requestSingleInstanceLock()
 if (!gotLock) {
   app.quit()

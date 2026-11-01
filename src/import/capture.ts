@@ -136,3 +136,56 @@ async function captureUrlLinkOnly(clip: ClipPayload): Promise<CaptureResult> {
   })
   return { item, warning: 'No readable text on that page. Saved the link only.' }
 }
+
+export async function captureScreenshot(image: File | Blob, title?: string): Promise<CaptureResult> {
+  try {
+    const file = image instanceof File ? image : new File([image], 'screenshot.png', { type: 'image/png' })
+    const name = file.name || 'screenshot.png'
+    const lower = name.toLowerCase()
+    
+    if (lower.endsWith('.png') || lower.endsWith('.jpg') || lower.endsWith('.jpeg') || lower.endsWith('.webp')) {
+      const item = await createItem({
+        type: 'file',
+        title: title || titleFromFileName(name),
+        content: `Screenshot: ${name}`,
+        fileName: name,
+        mime: file.type || 'image/png',
+        size: file.size,
+        blob: file,
+      })
+      return { item }
+    }
+    return { error: 'Unsupported image format' }
+  } catch (e) {
+    return { error: `Screenshot capture failed: ${e instanceof Error ? e.message : String(e)}` }
+  }
+}
+
+export async function captureImageWithOCR(image: File | Blob, title?: string): Promise<CaptureResult> {
+  try {
+    const dynamicTesseract = await import('tesseract.js')
+    
+    const file = image instanceof File ? image : new File([image], 'screenshot.png', { type: 'image/png' })
+    const name = file.name || 'screenshot.png'
+    
+    const { data: { text } } = await dynamicTesseract.recognize(file, 'eng', { logger: () => {} })
+    
+    if (!text || text.trim().length === 0) {
+      return captureScreenshot(image, title)
+    }
+    
+    const item = await createItem({
+      type: 'note',
+      title: title || titleFromFileName(name),
+      content: `![${name}](screenshot:${file.name})\n\n${text.trim()}\n\n---\n*OCR extracted from screenshot*`,
+      fileName: name,
+      mime: file.type || 'image/png',
+      size: file.size,
+      blob: file,
+    })
+    
+    return { item }
+  } catch (e) {
+    return { error: `OCR failed: ${e instanceof Error ? e.message : String(e)}` }
+  }
+}
