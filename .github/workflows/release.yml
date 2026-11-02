@@ -89,7 +89,7 @@ jobs:
       - run: npm ci
       - name: Generate and sync Android project
         run: |
-          npx cap add android
+          test -d android || npx cap add android
           npx cap sync android
       - name: Build Android debug APK on Linux
         run: |
