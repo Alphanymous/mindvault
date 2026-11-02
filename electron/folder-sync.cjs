@@ -116,28 +116,40 @@ function createFolderRpc(rootDir) {
   }
 }
 
-function joinFolderPath(base, ...parts) {
-  const windowsLike = /^(?:[A-Za-z]:[\\/]|\\\\)/.test(base) || parts.some((p) => /^(?:[A-Za-z]:[\\/]|\\\\)/.test(p)) || base.includes('\\')
-  return windowsLike ? path.win32.join(base, ...parts) : path.join(base, ...parts)
+function normalizePath(p) {
+  return String(p || '').replace(/\\/g, '/').replace(/\/+/g, '/').replace(/\/$/, '').toLowerCase()
+}
+
+function joinCloudPath(base, ...parts) {
+  const normalizedBase = String(base || '')
+  if (normalizedBase.includes('\\') || /^[A-Za-z]:/.test(normalizedBase) || parts.some((part) => part && /^(?:[A-Za-z]:|\\\\)/.test(String(part)))) {
+    return path.win32.join(normalizedBase, ...parts)
+  }
+  return path.join(normalizedBase, ...parts)
 }
 
 /** Cloud-synced folders that exist on this PC, so the user can pick with one click. */
 function detectCloudFolders(env = process.env, home = os.homedir(), exists = (p) => fssync.existsSync(p)) {
   const found = []
   const add = (label, p) => {
-    if (p && exists(p) && !found.some((f) => f.path.toLowerCase() === p.toLowerCase())) found.push({ label, path: p })
+    if (!p) return
+    const normalized = normalizePath(p)
+    if (!exists(p)) return
+    if (found.some((f) => normalizePath(f.path) === normalized)) return
+    found.push({ label, path: p })
   }
-  add('Google Drive', joinFolderPath(home, 'Google Drive'))
-  add('Google Drive', joinFolderPath(home, 'My Drive'))
+
+  add('Google Drive', joinCloudPath(home, 'Google Drive'))
+  add('Google Drive', joinCloudPath(home, 'My Drive'))
   for (const letter of 'GHIJKLMNOPQRSTUVWXYZ') {
     add('Google Drive', `${letter}:\\My Drive`)
   }
   add('OneDrive', env.OneDrive)
   add('OneDrive', env.OneDriveConsumer)
-  add('OneDrive', joinFolderPath(home, 'OneDrive'))
-  add('Dropbox', joinFolderPath(home, 'Dropbox'))
-  add('Nextcloud', joinFolderPath(home, 'Nextcloud'))
-  add('iCloud Drive', joinFolderPath(home, 'iCloudDrive'))
+  add('OneDrive', joinCloudPath(home, 'OneDrive'))
+  add('Dropbox', joinCloudPath(home, 'Dropbox'))
+  add('Nextcloud', joinCloudPath(home, 'Nextcloud'))
+  add('iCloud Drive', joinCloudPath(home, 'iCloudDrive'))
   return found
 }
 
