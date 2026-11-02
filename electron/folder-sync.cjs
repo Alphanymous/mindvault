@@ -116,23 +116,28 @@ function createFolderRpc(rootDir) {
   }
 }
 
+function joinFolderPath(base, ...parts) {
+  const windowsLike = /^(?:[A-Za-z]:[\\/]|\\\\)/.test(base) || parts.some((p) => /^(?:[A-Za-z]:[\\/]|\\\\)/.test(p)) || base.includes('\\')
+  return windowsLike ? path.win32.join(base, ...parts) : path.join(base, ...parts)
+}
+
 /** Cloud-synced folders that exist on this PC, so the user can pick with one click. */
 function detectCloudFolders(env = process.env, home = os.homedir(), exists = (p) => fssync.existsSync(p)) {
   const found = []
   const add = (label, p) => {
     if (p && exists(p) && !found.some((f) => f.path.toLowerCase() === p.toLowerCase())) found.push({ label, path: p })
   }
-  add('Google Drive', path.join(home, 'Google Drive'))
-  add('Google Drive', path.join(home, 'My Drive'))
+  add('Google Drive', joinFolderPath(home, 'Google Drive'))
+  add('Google Drive', joinFolderPath(home, 'My Drive'))
   for (const letter of 'GHIJKLMNOPQRSTUVWXYZ') {
     add('Google Drive', `${letter}:\\My Drive`)
   }
   add('OneDrive', env.OneDrive)
   add('OneDrive', env.OneDriveConsumer)
-  add('OneDrive', path.join(home, 'OneDrive'))
-  add('Dropbox', path.join(home, 'Dropbox'))
-  add('Nextcloud', path.join(home, 'Nextcloud'))
-  add('iCloud Drive', path.join(home, 'iCloudDrive'))
+  add('OneDrive', joinFolderPath(home, 'OneDrive'))
+  add('Dropbox', joinFolderPath(home, 'Dropbox'))
+  add('Nextcloud', joinFolderPath(home, 'Nextcloud'))
+  add('iCloud Drive', joinFolderPath(home, 'iCloudDrive'))
   return found
 }
 
