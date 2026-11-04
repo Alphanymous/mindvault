@@ -1,4 +1,5 @@
 import { getState, saveSettings } from '../data/store'
+import { isNativeApp } from '../import/web'
 import { localSide } from './localSide'
 import { syncWithPeer, type PeerSyncReport, type RpcMessage, type Transport } from './peerEngine'
 
@@ -26,8 +27,12 @@ export function httpTransport(baseUrl: string, token: string): Transport {
   }
 }
 
-/** Browsers refuse http requests from an https page. Explain it instead of showing a network error. */
-export function mixedContentProblem(peerUrl: string, pageOrigin = location.origin): string | null {
+/**
+ * Browsers refuse http requests from an https page. Explain it instead of showing a network error.
+ * The Android app is served from https://localhost but sends requests through native HTTP, so it is exempt.
+ */
+export function mixedContentProblem(peerUrl: string, pageOrigin = location.origin, native = isNativeApp()): string | null {
+  if (native) return null
   if (pageOrigin.startsWith('https:') && peerUrl.startsWith('http:') && !peerUrl.startsWith(pageOrigin)) {
     return 'This page is https, so the browser blocks the plain-http link to your computer. Open the pairing link in the phone browser instead, or use the Android app.'
   }

@@ -14,6 +14,9 @@ export function qrScanSupported(): boolean {
 export function ScanQr({ onResult, onClose }: { onResult(text: string): void; onClose(): void }) {
   const video = useRef<HTMLVideoElement>(null)
   const [error, setError] = useState('')
+  // Keep the latest callback without restarting the camera every time the parent re-renders.
+  const onResultRef = useRef(onResult)
+  onResultRef.current = onResult
 
   useEffect(() => {
     let stream: MediaStream | undefined
@@ -32,7 +35,7 @@ export function ScanQr({ onResult, onClose }: { onResult(text: string): void; on
           try {
             const found = await detector.detect(video.current)
             if (found[0]?.rawValue) {
-              onResult(found[0].rawValue)
+              onResultRef.current(found[0].rawValue)
               return
             }
           } catch {
@@ -50,7 +53,7 @@ export function ScanQr({ onResult, onClose }: { onResult(text: string): void; on
       window.clearTimeout(timer)
       stream?.getTracks().forEach((t) => t.stop())
     }
-  }, [onResult])
+  }, [])
 
   return (
     <div className="scan">

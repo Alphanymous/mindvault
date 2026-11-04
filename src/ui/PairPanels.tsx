@@ -180,7 +180,7 @@ export function PeerPanel() {
             On your computer open Mindvault → Settings → <b>Pair your phone</b>, then scan the code here or paste its link. Both devices must be on the same Wi-Fi.
           </p>
           {scanning ? (
-            <ScanQr onResult={(v) => void pair(v)} onClose={() => setScanning(false)} />
+            <ScanQr onResult={(v) => { setScanning(false); void pair(v) }} onClose={() => setScanning(false)} />
           ) : (
             <div className="row">
               {qrScanSupported() && (
