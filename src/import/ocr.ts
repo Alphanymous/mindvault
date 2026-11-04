@@ -6,6 +6,8 @@ export async function recognizeImage(image: Blob): Promise<string> {
     workerPath: `${base}worker.min.js`,
     corePath: base,
     langPath: `${base}lang`,
+    // The language data ships unzipped (Android strips .gz assets).
+    gzip: false,
     // Load the worker straight from our own origin instead of wrapping it in a blob.
     workerBlobURL: false,
     logger: () => {},

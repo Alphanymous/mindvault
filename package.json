@@ -1,7 +1,7 @@
 {
   "name": "mindvault",
   "productName": "Mindvault",
-  "version": "0.3.4",
+  "version": "0.3.5",
   "description": "Local-first knowledge base: auto-organising inbox, knowledge graph, prompt toolbox and PDF reader.",
   "private": true,
   "type": "module",
