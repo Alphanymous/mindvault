@@ -47,7 +47,8 @@ export function Capture({ onClose, initial = '', dictate = false }: { onClose():
     try {
       const result = await captureImageWithOCR(file, 'Screenshot')
       if (result.item) {
-        toast('Screenshot saved with OCR text', 'ok', { label: 'View', href: '#/library?c=new' })
+        if (result.warning) toast(result.warning, 'warn')
+        else toast('Image saved with its text', 'ok', { label: 'View', href: '#/library?c=new' })
         onClose()
       } else if (result.error) {
         toast(result.error, 'error')
@@ -114,10 +115,10 @@ export function Capture({ onClose, initial = '', dictate = false }: { onClose():
         )}
         <div className="capture-foot">
           <input ref={fileInput} type="file" multiple hidden onChange={(e) => { addFiles(e.target.files); e.target.value = '' }} />
-          <input ref={cameraInput} type="file" accept="image/*" capture="environment" hidden onChange={(e) => { if (e.target.files && e.target.files[0]) handleImageCapture(e.target.files[0]); e.target.value = '' }} />
+          <input ref={cameraInput} type="file" accept="image/*" hidden onChange={(e) => { if (e.target.files && e.target.files[0]) handleImageCapture(e.target.files[0]); e.target.value = '' }} />
           <button className="btn" onClick={() => fileInput.current?.click()}><Icon name="upload" size={16} /> Add files</button>
           <button className="btn" onClick={triggerCamera} disabled={ocrBusy}>
-            <Icon name="camera" size={16} /> {ocrBusy ? 'Processing...' : 'Screenshot'}
+            <Icon name="camera" size={16} /> {ocrBusy ? 'Reading text…' : 'Image to text'}
           </button>
           {voice.supported && (
             <button className={`btn ${voice.listening ? 'rec' : ''}`} onClick={() => (voice.listening ? voice.stop() : voice.start())} aria-pressed={voice.listening}>

@@ -11,3 +11,4 @@ android/**/build
 .vite
 dev-dist
 .claude
+public/ocr

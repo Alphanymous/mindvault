@@ -1,6 +1,7 @@
 import { firstHeading, parseFrontmatter, titleFromFileName } from '../core/markdown'
 import type { Item } from '../core/types'
 import { createItem } from '../data/store'
+import { recognizeImage } from './ocr'
 import { extractPdf } from './pdf'
 import type { ClipPayload } from '../sync/pairing'
 import { parseShared, type SharedInput } from './shared'
@@ -162,28 +163,33 @@ export async function captureScreenshot(image: File | Blob, title?: string): Pro
 }
 
 export async function captureImageWithOCR(image: File | Blob, title?: string): Promise<CaptureResult> {
+  const file = image instanceof File ? image : new File([image], 'screenshot.png', { type: image.type || 'image/png' })
+  const name = file.name || 'screenshot.png'
+  let text = ''
   try {
-    const dynamicTesseract = await import('tesseract.js')
-    
-    const file = image instanceof File ? image : new File([image], 'screenshot.png', { type: 'image/png' })
-    const name = file.name || 'screenshot.png'
-    
-    const { data: { text } } = await dynamicTesseract.recognize(file, 'eng', { logger: () => {} })
-    
-    if (!text || text.trim().length === 0) {
-      return captureScreenshot(image, title)
-    }
-    
+    text = await recognizeImage(file)
+  } catch (e) {
+    // Keep the picture even when reading it fails.
+    const saved = await captureScreenshot(file, title)
+    return saved.item ? { item: saved.item, warning: `Could not read text from the image (${e instanceof Error ? e.message : String(e)}). Saved the image only.` } : saved
+  }
+  if (!text) {
+    const saved = await captureScreenshot(file, title)
+    return saved.item ? { item: saved.item, warning: 'No text found in the image. Saved the image only.' } : saved
+  }
+  try {
     const item = await createItem({
       type: 'note',
       title: title || titleFromFileName(name),
-      content: `![${name}](screenshot:${file.name})\n\n${text.trim()}\n\n---\n*OCR extracted from screenshot*`,
+      content: `${text}
+
+---
+*Text read from an image (OCR)*`,
       fileName: name,
       mime: file.type || 'image/png',
       size: file.size,
       blob: file,
     })
-    
     return { item }
   } catch (e) {
     return { error: `OCR failed: ${e instanceof Error ? e.message : String(e)}` }

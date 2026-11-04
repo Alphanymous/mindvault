@@ -16,6 +16,9 @@ export default defineConfig({
       includeAssets: ['icon.svg'],
       workbox: {
         globPatterns: ['**/*.{js,css,html,svg,png,woff2,mjs}'],
+        // The OCR engine is ~12 MB: fetch it on first use instead of on every install.
+        globIgnores: ['ocr/**'],
+        runtimeCaching: [{ urlPattern: ({ url }) => url.pathname.includes('/ocr/'), handler: 'CacheFirst', options: { cacheName: 'ocr-engine' } }],
         maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
       },
       manifest: {

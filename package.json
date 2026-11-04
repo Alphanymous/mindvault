@@ -1,14 +1,16 @@
 {
   "name": "mindvault",
   "productName": "Mindvault",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "Local-first knowledge base: auto-organising inbox, knowledge graph, prompt toolbox and PDF reader.",
   "private": true,
   "type": "module",
   "main": "electron/main.cjs",
   "author": "Mindvault",
   "scripts": {
+    "predev": "node scripts/copy-ocr-assets.mjs",
     "dev": "vite",
+    "prebuild": "node scripts/copy-ocr-assets.mjs",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "test": "vitest run",
@@ -36,6 +38,7 @@
   },
   "devDependencies": {
     "@capacitor/cli": "^8.5.3",
+    "@tesseract.js-data/eng": "^1.0.0",
     "@types/d3-force": "^3.0.10",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
