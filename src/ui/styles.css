@@ -326,7 +326,7 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--a
   .title-input { font-size: 26px; }
   .grid { grid-template-columns: 1fr; }
   .tabbar {
-    display: grid; grid-template-columns: 1fr 1fr 64px 1fr 1fr; align-items: center; padding: 6px 6px calc(6px + var(--safe-b));
+    display: grid; grid-template-columns: 1fr 1fr 1fr 64px 1fr 1fr 1fr; align-items: center; padding: 6px 6px calc(6px + var(--safe-b));
     background: var(--glass); backdrop-filter: blur(20px); border-top: 1px solid var(--border); position: relative; z-index: 20;
   }
   .tab { display: flex; flex-direction: column; align-items: center; gap: 2px; font-size: 11px; color: var(--muted); padding: 6px 0; }

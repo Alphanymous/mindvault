@@ -268,7 +268,8 @@ export function App() {
 
       <nav className="tabbar" aria-label="Main">
         <TabLink route={{ name: 'home' }} active={route.name === 'home'} icon="home" label="Home" badge={freshCount} />
-        <TabLink route={{ name: 'library' }} active={route.name === 'library' || route.name === 'item' || route.name === 'prompts'} icon="library" label="Library" />
+        <TabLink route={{ name: 'library' }} active={route.name === 'library' || route.name === 'item'} icon="library" label="Library" />
+        <TabLink route={{ name: 'prompts' }} active={route.name === 'prompts'} icon="prompt" label="Prompts" />
         <button
           className="fab"
           onPointerDown={fabDown}
@@ -283,6 +284,7 @@ export function App() {
         </button>
         <TabLink route={{ name: 'graph' }} active={route.name === 'graph'} icon="graph" label="Graph" />
         <button className="tab" onClick={() => setPalette('')}><Icon name="search" size={21} /><span>Search</span></button>
+        <TabLink route={{ name: 'settings' }} active={route.name === 'settings'} icon="settings" label="Settings" />
       </nav>
 
       {palette !== null && <Palette initial={palette} onClose={() => setPalette(null)} actions={actions} />}
