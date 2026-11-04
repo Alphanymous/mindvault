@@ -97,8 +97,8 @@ jobs:
           ANDROID_DEBUG_KEYSTORE_B64: ${{ secrets.ANDROID_DEBUG_KEYSTORE_B64 }}
         run: |
           test -n "$ANDROID_DEBUG_KEYSTORE_B64"
-          mkdir -p ~/.android
-          echo "$ANDROID_DEBUG_KEYSTORE_B64" | base64 -d > ~/.android/debug.keystore
+          echo "$ANDROID_DEBUG_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/debug.keystore"
+          echo "MINDVAULT_DEBUG_KEYSTORE=$RUNNER_TEMP/debug.keystore" >> "$GITHUB_ENV"
       - name: Build Android debug APK on Linux
         run: |
           chmod +x android/gradlew
@@ -107,6 +107,12 @@ jobs:
           mkdir -p ../release
           cp app/build/outputs/apk/debug/app-debug.apk ../release/Mindvault-debug.apk
           test -s ../release/Mindvault-debug.apk
+      - name: Verify APK is signed with the expected key
+        run: |
+          expected=8ad85bb4bf86102fa36ae84403d775fb2fc8a14b6ccc898876bc04424c5fca64
+          actual=$("$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --print-certs release/Mindvault-debug.apk | sed -n 's/.*certificate SHA-256 digest: //p' | head -1)
+          echo "signer: $actual"
+          test "$actual" = "$expected"
       - uses: actions/upload-artifact@v4
         with:
           name: mindvault-android
