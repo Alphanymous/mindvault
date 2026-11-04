@@ -92,6 +92,13 @@ jobs:
         run: |
           test -d android || npx cap add android
           npx cap sync android
+      - name: Restore stable debug signing key
+        env:
+          ANDROID_DEBUG_KEYSTORE_B64: ${{ secrets.ANDROID_DEBUG_KEYSTORE_B64 }}
+        run: |
+          test -n "$ANDROID_DEBUG_KEYSTORE_B64"
+          mkdir -p ~/.android
+          echo "$ANDROID_DEBUG_KEYSTORE_B64" | base64 -d > ~/.android/debug.keystore
       - name: Build Android debug APK on Linux
         run: |
           chmod +x android/gradlew
