@@ -126,16 +126,28 @@ export function Palette({ onClose, actions, initial = '' }: { onClose(): void; a
 
   return (
     <div className="overlay" onMouseDown={onClose}>
-      <div className="palette glass" onMouseDown={(e) => e.stopPropagation()} role="dialog" aria-label="Search and commands">
+      <div className="palette glass" onMouseDown={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Search and commands">
         <div className="palette-input">
           <Icon name="search" />
-          <input ref={input} value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={onKey} placeholder={placeholder} />
+          <input
+            ref={input}
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            onKeyDown={onKey}
+            placeholder={placeholder}
+            aria-label={placeholder}
+            role="combobox"
+            aria-expanded="true"
+            aria-controls="palette-list"
+            aria-autocomplete="list"
+            aria-activedescendant={entries[sel] ? `palette-opt-${sel}` : undefined}
+          />
           <kbd>esc</kbd>
         </div>
-        <ul className="palette-list">
-          {entries.length === 0 && <li className="muted pad">No matches</li>}
+        <ul className="palette-list" id="palette-list" role="listbox" aria-label="Results">
+          {entries.length === 0 && <li className="muted pad" role="option" aria-selected="false" aria-disabled="true">No matches</li>}
           {entries.map((e, i) => (
-            <li key={e.key} className={i === sel ? 'on' : ''} onMouseEnter={() => setSel(i)} onClick={e.run}>
+            <li key={e.key} id={`palette-opt-${i}`} role="option" aria-selected={i === sel} className={i === sel ? 'on' : ''} onMouseEnter={() => setSel(i)} onClick={e.run}>
               <Icon name={e.icon} size={17} />
               <span className="pl-main">
                 <span className="pl-label">{e.label}</span>

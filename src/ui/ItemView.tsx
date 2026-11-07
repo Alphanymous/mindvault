@@ -141,6 +141,7 @@ function ItemBody({ item, page }: { item: Item; page?: number }) {
               list="folder-list-item"
               value={item.folder}
               placeholder="Unfiled"
+              aria-label="Folder"
               onChange={(e) => updateItem(item.id, { folder: e.target.value.replace(/^\/+/, ''), status: 'organized', suggestion: undefined })}
             />
             <datalist id="folder-list-item">{folders.map((f) => <option key={f} value={f} />)}</datalist>
@@ -260,6 +261,7 @@ function TagEditor({ tags, onChange }: { tags: string[]; onChange(t: string[]): 
       <input
         value={val}
         placeholder="+ tag"
+        aria-label="Add tag"
         onChange={(e) => setVal(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === 'Enter' || e.key === ',') {
@@ -346,6 +348,7 @@ function Editor({ value, onChange, selfId }: { value: string; onChange(v: string
         autoFocus
         spellCheck
         placeholder="Write in Markdown. [[Link]] to other notes, #tag inline."
+        aria-label="Note text"
         onChange={(e) => {
           onChange(e.target.value)
           detect(e.target)

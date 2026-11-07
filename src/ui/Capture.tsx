@@ -87,6 +87,7 @@ export function Capture({ onClose, initial = '', dictate = false }: { onClose():
         onDragLeave={() => setDrag(false)}
         onDrop={(e) => { e.preventDefault(); setDrag(false); addFiles(e.dataTransfer.files) }}
         role="dialog"
+        aria-modal="true"
         aria-label="Quick capture"
       >
         <div className="capture-head">
@@ -100,8 +101,9 @@ export function Capture({ onClose, initial = '', dictate = false }: { onClose():
           onKeyDown={(e) => { if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') save() }}
           placeholder="Paste a link to clip a page, paste a prompt, or just write. Drop PDFs and files here."
           rows={6}
+          aria-label="Capture text"
         />
-        {voice.listening && <p className="listening"><span className="pulse" /> Listening\u2026 {voice.interim && <i className="muted">{voice.interim}</i>}</p>}
+        {voice.listening && <p className="listening"><span className="pulse" /> {'Listening\u2026'} {voice.interim && <i className="muted">{voice.interim}</i>}</p>}
         {voice.error && <p className="small danger-text">{voice.error}</p>}
         {files.length > 0 && (
           <ul className="file-list">
