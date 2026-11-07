@@ -80,6 +80,18 @@ describe('peer sync protocol', () => {
     expect(phone.blobs.get('blobpc00001')).toEqual({ mime: 'application/pdf', b64: 'UENQREY=' })
   })
 
+  it('repairs a file missing on either side for an item both sides already agree on', async () => {
+    // an earlier sync copied the items but was cut off before the files arrived
+    const onPc = mk('pc.pdf', 30, { type: 'pdf', blobId: 'blobpc00002' })
+    const onPhone = mk('phone.pdf', 31, { type: 'pdf', blobId: 'blobphone02' })
+    const phone = device([onPc, onPhone], { blobphone02: { mime: 'application/pdf', b64: 'UEg=' } })
+    const pc = device([onPc, onPhone], { blobpc00002: { mime: 'application/pdf', b64: 'UEM=' } })
+    const report = await syncWithPeer(phone, link(pc))
+    expect(report).toEqual({ pushed: 0, pulled: 0, skipped: 0 })
+    expect(phone.blobs.get('blobpc00002')).toEqual({ mime: 'application/pdf', b64: 'UEM=' })
+    expect(pc.blobs.get('blobphone02')).toEqual({ mime: 'application/pdf', b64: 'UEg=' })
+  })
+
   it('rejects malformed items sent by a peer instead of storing them', async () => {
     const pc = device()
     const bad = { ...mk('x', 1), id: '../../evil' }

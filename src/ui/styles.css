@@ -753,6 +753,8 @@ input:focus, select:focus, textarea:focus { border-color: var(--blue); box-shado
 
 /* phones: Save gets its own full-width row so it never falls off the dialog */
 @media (max-width: 820px) {
+  /* below 16px, iOS zooms the page into any field you tap */
+  input, select, textarea, .capture textarea, .editor textarea, .tag-editor input { font-size: 16px; }
   .capture-foot .spacer { display: none; }
   .capture-foot .btn.primary { flex: 1 0 100%; justify-content: center; padding: 12px 18px; }
 }

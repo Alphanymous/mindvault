@@ -4,8 +4,10 @@ import './ui/styles.css'
 import { App } from './ui/App'
 import { initStore } from './data/store'
 import { registerPeerHost } from './sync/peerHost'
+import { setupServiceWorker } from './pwa'
 
 registerPeerHost()
+setupServiceWorker()
 initStore().finally(() => {
   createRoot(document.getElementById('root')!).render(
     <StrictMode>

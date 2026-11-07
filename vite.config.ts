@@ -13,6 +13,8 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
+      // Registered from src/pwa.ts, and only in the browser: the Android and desktop apps bundle their files.
+      injectRegister: false,
       includeAssets: ['icon.svg'],
       workbox: {
         globPatterns: ['**/*.{js,css,html,svg,png,woff2,mjs}'],
@@ -22,6 +24,7 @@ export default defineConfig({
         maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
       },
       manifest: {
+        id: './',
         name: 'Mindvault',
         short_name: 'Mindvault',
         description: 'Your second brain: capture, auto-organise and connect everything you save.',

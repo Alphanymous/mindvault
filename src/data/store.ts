@@ -2,6 +2,7 @@ import { useSyncExternalStore } from 'react'
 import { buildLinkIndex, renameWikiLinks, type LinkIndex } from '../core/links'
 import { classify, refineWithLlm, type ClassifyInput } from '../core/classify'
 import { DEFAULT_SETTINGS, type Item, type ItemType, type Settings, type Suggestion } from '../core/types'
+import { onlyNewer } from '../sync/plan'
 import { blobsDb, itemsDb, metaDb } from './db'
 
 export interface State {
@@ -193,12 +194,22 @@ export async function deleteItem(id: string) {
   await updateItem(id, { deleted: true, content: '', blobId: undefined })
 }
 
-export async function replaceItemsFromSync(items: Item[]) {
+/** Apply items downloaded by a sync. Copies older than what is stored now (edited during the sync) are dropped. */
+export async function replaceItemsFromSync(incoming: Item[]) {
+  const before = new Map(state.items.map((i) => [i.id, i]))
+  const items = onlyNewer(before, incoming)
   if (!items.length) return
+  // An edit made during this write queues its own write after this one, so the database keeps the edit.
   await itemsDb.putMany(items)
+  // Re-read state: it may have changed while the write was awaited.
   const map = new Map(state.items.map((i) => [i.id, i]))
-  for (const i of items) map.set(i.id, i)
+  for (const i of onlyNewer(map, items)) map.set(i.id, i)
   commit([...map.values()])
+  // A deletion from another device also frees the original file stored here.
+  for (const i of items) {
+    const old = before.get(i.id)?.blobId
+    if (i.deleted && old) await blobsDb.delete(old)
+  }
 }
 
 export async function getBlob(id: string): Promise<Blob | undefined> {

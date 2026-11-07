@@ -2,7 +2,8 @@ import type { BlobRecord, Item } from '../core/types'
 import { blobsDb } from '../data/db'
 import { getState, replaceItemsFromSync, saveSettings } from '../data/store'
 import { getAccessToken, signOut } from './google'
-import { planSync } from './plan'
+import { isValidItem } from './pairing'
+import { newestRemote, planSync } from './plan'
 
 const API = 'https://www.googleapis.com/drive/v3'
 const UPLOAD = 'https://www.googleapis.com/upload/drive/v3'
@@ -68,17 +69,30 @@ async function upload(token: string, existingId: string | undefined, name: strin
 const itemName = (id: string) => `item-${id}.json`
 const blobName = (id: string) => `blob-${id}`
 
-export async function syncNow(interactive: boolean): Promise<SyncReport> {
+let running: Promise<SyncReport> | null = null
+
+/**
+ * Sync with Google Drive. Calls made while a sync is running share its result: two syncs at once would both
+ * create the same file, and Drive keeps both copies.
+ */
+export function syncNow(interactive: boolean): Promise<SyncReport> {
+  running ??= runSync(interactive).finally(() => {
+    running = null
+  })
+  return running
+}
+
+async function runSync(interactive: boolean): Promise<SyncReport> {
   const { settings } = getState()
   const token = await getAccessToken(settings.googleClientId, interactive)
   const remoteFiles = await listRemote(token)
   const byName = new Map(remoteFiles.map((f) => [f.name, f]))
 
-  const remoteItems = new Map<string, { updatedAt: number; file: RemoteFile }>()
-  for (const f of remoteFiles) {
+  const itemFiles = remoteFiles.flatMap((f) => {
     const m = /^item-(.+)\.json$/.exec(f.name)
-    if (m) remoteItems.set(m[1], { updatedAt: Number(f.appProperties?.updatedAt ?? 0), file: f })
-  }
+    return m ? [{ key: m[1], updatedAt: Number(f.appProperties?.updatedAt ?? 0), file: f }] : []
+  })
+  const remoteItems = newestRemote(itemFiles)
   const local = getState().items
   const localMap = new Map(local.map((i) => [i.id, i]))
   const plan = planSync(localMap, remoteItems)
@@ -87,7 +101,9 @@ export async function syncNow(interactive: boolean): Promise<SyncReport> {
   const pulled: Item[] = []
   for (const id of plan.pull) {
     const f = remoteItems.get(id)!.file
-    const item = (await (await call(token, `${API}/files/${f.id}?alt=media`)).json()) as Item
+    const item: unknown = await (await call(token, `${API}/files/${f.id}?alt=media`)).json()
+    // Drive content is outside this device's control: check it like data from a paired device.
+    if (!isValidItem(item) || item.id !== id) continue
     pulled.push(item)
     const bf = item.blobId ? byName.get(blobName(item.blobId)) : undefined
     if (bf && item.blobId && !(await blobsDb.get(item.blobId))) {
@@ -118,6 +134,16 @@ export async function syncNow(interactive: boolean): Promise<SyncReport> {
     if (item.deleted || !item.blobId || plan.push.includes(item.id) || byName.has(blobName(item.blobId))) continue
     const rec = await blobsDb.get(item.blobId)
     if (rec) await upload(token, undefined, blobName(item.blobId), rec.data, { updatedAt: String(item.updatedAt), mime: rec.mime })
+  }
+  // Older duplicate copies (from syncs that overlapped in earlier versions) are removed so they never win again.
+  for (const entry of remoteItems.values()) {
+    for (const dup of entry.duplicates) {
+      try {
+        await call(token, `${API}/files/${dup.id}`, { method: 'DELETE' })
+      } catch {
+        // Cleanup only: the newest copy already won, so a failed delete is retried on the next sync.
+      }
+    }
   }
 
   const report = { pushed: plan.push.length, pulled: pulled.length, at: Date.now() }

@@ -133,5 +133,39 @@ export async function syncWithPeer(side: LocalSide, peer: Transport): Promise<Pe
     if (res.ok) pushed++
     else skipped++
   }
+
+  skipped += await repairBlobs(side, peer, local, remote, remoteBlobs, new Set([...plan.pull, ...plan.push]))
   return { pushed, pulled: pulled.length, skipped }
+}
+
+/**
+ * Items both sides already agree on can still miss their file on one side, when an earlier sync was cut off
+ * between the item and its file. Without this the gap would never close, because the item looks in sync.
+ * Returns how many files could not be moved.
+ */
+async function repairBlobs(
+  side: LocalSide,
+  peer: Transport,
+  local: Item[],
+  remote: Map<string, unknown>,
+  remoteBlobs: Set<string>,
+  alreadyHandled: Set<string>,
+): Promise<number> {
+  const localBlobs = new Set(await side.blobIds())
+  let failed = 0
+  for (const item of local) {
+    if (alreadyHandled.has(item.id) || item.deleted || !item.blobId || !remote.has(item.id)) continue
+    const here = localBlobs.has(item.blobId)
+    const there = remoteBlobs.has(item.blobId)
+    if (here && !there) {
+      const blob = await side.readBlob(item.blobId)
+      if (!blob || blob.b64.length > MAX_BLOB_B64) failed++
+      else if (!(await peer.call({ op: 'putBlob', id: item.blobId, ...blob })).ok) failed++
+    } else if (!here && there) {
+      const b = await peer.call({ op: 'getBlob', id: item.blobId })
+      if (b.ok && typeof b.b64 === 'string' && typeof b.mime === 'string') await side.writeBlob(item.blobId, { mime: b.mime, b64: b.b64 })
+      else failed++
+    }
+  }
+  return failed
 }
