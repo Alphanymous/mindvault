@@ -118,15 +118,17 @@ export function Capture({ onClose, initial = '', dictate = false }: { onClose():
         <div className="capture-foot">
           <input ref={fileInput} type="file" multiple hidden onChange={(e) => { addFiles(e.target.files); e.target.value = '' }} />
           <input ref={cameraInput} type="file" accept="image/*" hidden onChange={(e) => { if (e.target.files && e.target.files[0]) handleImageCapture(e.target.files[0]); e.target.value = '' }} />
-          <button className="btn" onClick={() => fileInput.current?.click()}><Icon name="upload" size={16} /> Add files</button>
-          <button className="btn" onClick={triggerCamera} disabled={ocrBusy}>
-            <Icon name="camera" size={16} /> {ocrBusy ? 'Reading text…' : 'Image to text'}
-          </button>
-          {voice.supported && (
-            <button className={`btn ${voice.listening ? 'rec' : ''}`} onClick={() => (voice.listening ? voice.stop() : voice.start())} aria-pressed={voice.listening}>
-              <Icon name="sparkle" size={16} /> {voice.listening ? 'Stop' : 'Dictate'}
+          <div className="capture-tools" role="group" aria-label="Add to capture">
+            <button className="btn" onClick={() => fileInput.current?.click()}><Icon name="upload" size={16} /> Add files</button>
+            <button className="btn" onClick={triggerCamera} disabled={ocrBusy}>
+              <Icon name="camera" size={16} /> {ocrBusy ? 'Reading text…' : 'Image to text'}
             </button>
-          )}
+            {voice.supported && (
+              <button className={`btn ${voice.listening ? 'rec' : ''}`} onClick={() => (voice.listening ? voice.stop() : voice.start())} aria-pressed={voice.listening}>
+                <Icon name="sparkle" size={16} /> {voice.listening ? 'Stop' : 'Dictate'}
+              </button>
+            )}
+          </div>
           <span className="muted small hide-mobile">Ctrl+Enter to save</span>
           <span className="spacer" />
           <button className="btn primary" disabled={busy || (!text.trim() && !files.length)} onClick={save}>
