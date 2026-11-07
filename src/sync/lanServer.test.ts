@@ -111,3 +111,36 @@ describe('desktop request handler', () => {
     expect(text).not.toContain('"name": "mindvault"')
   })
 })
+
+const { peerBases } = require('../../electron/lan-server.cjs') as {
+  peerBases(hostname: string, ips: string[], port: number): string[]
+}
+
+describe('pairing addresses', () => {
+  it('puts the network name first, so a changed IP address does not break pairing', () => {
+    expect(peerBases('DESKTOP-AB12', ['192.168.1.5', '10.0.0.3'], 47822)).toEqual([
+      'http://desktop-ab12.local:47822',
+      'http://192.168.1.5:47822',
+      'http://10.0.0.3:47822',
+    ])
+  })
+  it('skips a name that is not usable on the network', () => {
+    expect(peerBases('My PC_é', ['192.168.1.5'], 1)).toEqual(['http://192.168.1.5:1'])
+    expect(peerBases('', ['192.168.1.5'], 1)).toEqual(['http://192.168.1.5:1'])
+  })
+  it('tells a phone every address it can use, in ping', async () => {
+    const handler = createRequestHandler({
+      distDir: process.cwd() + '/public',
+      getToken: () => TOKEN,
+      dispatch: async () => ({ ok: true }),
+      allowRpc: true,
+      allowedHosts: null,
+      getPeerUrls: () => ['http://pc.local:1', 'http://192.168.1.5:1'],
+    } as Parameters<typeof createRequestHandler>[0])
+    const server = http.createServer(handler)
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r))
+    servers.push(server)
+    const res = await fetch(`http://127.0.0.1:${(server.address() as AddressInfo).port}/api/ping`)
+    expect(await res.json()).toEqual({ app: 'mindvault', rpc: true, urls: ['http://pc.local:1', 'http://192.168.1.5:1'] })
+  })
+})

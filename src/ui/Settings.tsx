@@ -1,3 +1,4 @@
+import { useAppState } from '../data/store'
 import { HostPanel, PeerPanel } from './PairPanels'
 import { href, type Route } from './router'
 import { AboutTab } from './settings/AboutTab'
@@ -20,6 +21,9 @@ const TABS = [
 
 function SyncTab() {
   const desktop = !!window.mindvault?.pair
+  // Your computer is the sync hub. Google Drive stays available only for people who already set it up.
+  const { settings } = useAppState()
+  const driveSetUp = !!settings.googleClientId
   return (
     <>
       {desktop ? (
@@ -30,10 +34,12 @@ function SyncTab() {
       ) : (
         <PeerPanel />
       )}
-      <details className="more-ways">
-        <summary>More ways to sync: Google sign-in (advanced)</summary>
-        <DriveCard />
-      </details>
+      {driveSetUp && (
+        <details className="more-ways">
+          <summary>Google Drive (set up earlier)</summary>
+          <DriveCard />
+        </details>
+      )}
     </>
   )
 }
@@ -45,7 +51,7 @@ export function Settings({ route }: { route?: SettingsRoute }) {
       <header className="page-head">
         <div>
           <h1>Settings</h1>
-          <p className="sub">Everything is stored on this device. Each connection below has a test button, so you know it works.</p>
+          <p className="sub">Everything is stored on this device. Your computer is the hub that keeps your phones in sync.</p>
         </div>
       </header>
       <nav className="tabs" aria-label="Settings sections">

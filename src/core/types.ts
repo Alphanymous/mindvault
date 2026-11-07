@@ -74,6 +74,8 @@ export interface Settings {
   /** Paired computer running Mindvault (LAN sync), e.g. http://192.168.1.5:47822 */
   peerUrl: string
   peerToken: string
+  /** Other addresses the paired computer reported (its network name and IPs), tried when peerUrl stops answering. */
+  peerAltUrls: string[]
   peerAutoSync: boolean
   lastPeerSyncAt?: number
   /** Optional OpenAI-compatible embeddings endpoint for meaning-based search. */
@@ -91,6 +93,7 @@ export const DEFAULT_SETTINGS: Settings = {
   autoSync: true,
   peerUrl: '',
   peerToken: '',
+  peerAltUrls: [],
   peerAutoSync: true,
   embeddingsEndpoint: '',
   embeddingsModel: 'text-embedding-3-small',

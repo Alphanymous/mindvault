@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
-import { saveSettings } from '../data/store'
 import { TOKEN_RE } from '../sync/pairing'
-import { pingPeer, syncPeerNow } from '../sync/peer'
+import { fetchPeerInfo, savePairing, syncPeerNow } from '../sync/peer'
 import { go } from './router'
 import { toast } from './toast'
 
@@ -20,11 +19,12 @@ export function PairPage({ token }: { token: string }) {
         setFailed(true)
         return setMessage('This is not a valid pairing link.')
       }
-      if (!(await pingPeer(location.origin))) {
+      const info = await fetchPeerInfo(location.origin)
+      if (!info) {
         setFailed(true)
         return setMessage('This page was not opened from the Mindvault desktop app. Open the pairing link on your phone, or paste it in Settings.')
       }
-      await saveSettings({ peerUrl: location.origin, peerToken: token })
+      await savePairing(location.origin, token, info)
       try {
         const r = await syncPeerNow()
         if (!cancelled) toast(`Paired. ${r.pushed} sent, ${r.pulled} received.`)

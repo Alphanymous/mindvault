@@ -4,7 +4,7 @@ const os = require('node:os')
 const path = require('node:path')
 const fs = require('node:fs')
 const crypto = require('node:crypto')
-const { createRequestHandler } = require('./lan-server.cjs')
+const { createRequestHandler, peerBases } = require('./lan-server.cjs')
 const { createFolderRpc, detectCloudFolders } = require('./folder-sync.cjs')
 
 // The renderer is served from http://localhost:<port> instead of file:// so that
@@ -53,8 +53,10 @@ function lanAddresses() {
   return out.sort((a, b) => rank(a) - rank(b))
 }
 
+const peerUrls = () => (lanServer ? peerBases(os.hostname(), lanAddresses(), lanPort) : [])
+
 function pairInfo() {
-  const links = config.enabled && lanServer ? lanAddresses().map((ip) => `http://${ip}:${lanPort}/#/pair/${config.token}`) : []
+  const links = config.enabled && lanServer ? peerUrls().map((base) => `${base}/#/pair/${config.token}`) : []
   return { enabled: config.enabled && !!lanServer, token: config.token, links, clipUrl: `http://localhost:${loopbackPort}/api/clip` }
 }
 
@@ -121,7 +123,7 @@ async function startLanServer() {
   lanPort = await listen(server, LAN_PORT, '0.0.0.0')
   server.on(
     'request',
-    createRequestHandler({ distDir: DIST, getToken: () => config.token, dispatch: dispatchToRenderer, allowRpc: true, allowedHosts: null }),
+    createRequestHandler({ distDir: DIST, getToken: () => config.token, dispatch: dispatchToRenderer, allowRpc: true, allowedHosts: null, getPeerUrls: peerUrls }),
   )
   lanServer = server
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildBookmarklet, buildPairLink, isValidItem, parseClip, parsePairLink } from './pairing'
+import { buildBookmarklet, buildPairLink, isValidItem, parseClip, parsePairLink, peerCandidates } from './pairing'
 
 const TOKEN = 'AbCdEfGh1234567_-xyzAB'
 
@@ -50,5 +50,17 @@ describe('web clipper', () => {
     expect(code).toContain(JSON.stringify(TOKEN))
     expect(code).toContain('localhost:47821/api/clip')
     expect(() => new Function(code)).not.toThrow()
+  })
+})
+
+describe('peer address list', () => {
+  it('keeps only plain http(s) origins, without duplicates, primary first', () => {
+    expect(
+      peerCandidates('http://pc.local:47822', ['http://192.168.1.5:47822/', 'javascript:alert(1)', 'http://pc.local:47822', 'ftp://x', 42, 'http://10.0.0.3:47822/#/pair/x']),
+    ).toEqual(['http://pc.local:47822', 'http://192.168.1.5:47822', 'http://10.0.0.3:47822'])
+  })
+  it('caps the list so a peer cannot flood it', () => {
+    const many = Array.from({ length: 50 }, (_, i) => `http://10.0.0.${i}:1`)
+    expect(peerCandidates('', many)).toHaveLength(8)
   })
 })

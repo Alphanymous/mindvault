@@ -3,7 +3,7 @@ import QRCode from 'qrcode'
 import { saveSettings, useAppState } from '../data/store'
 import type { PairInfo } from '../import/web'
 import { buildBookmarklet, parsePairLink } from '../sync/pairing'
-import { mixedContentProblem, pingPeer, syncPeerNow } from '../sync/peer'
+import { fetchPeerInfo, mixedContentProblem, savePairing, syncPeerNow, usePeerStatus, type PeerStatus } from '../sync/peer'
 import { Icon } from './Icon'
 import { ScanQr, qrScanSupported } from './ScanQr'
 import { toast } from './toast'
@@ -45,21 +45,20 @@ export function HostPanel() {
       {info.enabled && info.links.length === 0 && (
         <p className="muted small">No network address found. Connect this computer to Wi-Fi or Ethernet.</p>
       )}
-      {info.enabled &&
-        info.links.map((link, i) => (
-          <div key={link} className="pair-card">
-            {qr[i] && <img src={qr[i]} alt="Pairing QR code" width={220} height={220} />}
-            <div>
-              <p className="small">On your phone, open Mindvault, then Settings → Sync with your computer → scan this code, or paste the link:</p>
-              <code className="pair-link">{link}</code>
-              <div className="row">
-                <button className="btn" onClick={async () => toast((await copyText(link)) ? 'Pairing link copied' : 'Copy failed')}>
-                  <Icon name="copy" size={16} /> Copy link
-                </button>
-              </div>
-            </div>
-          </div>
-        ))}
+      {info.enabled && info.links.length > 0 && (
+        <PairCard link={info.links[0]} qr={qr[0]}>
+          <p className="small">
+            On your phone, open Mindvault → Settings → Sync and scan this code. On an iPhone, open the link in Safari, then Share → Add to Home Screen.
+          </p>
+        </PairCard>
+      )}
+      {info.enabled && info.links.length > 1 && (
+        <details className="guide">
+          <summary>Code does not connect? Use an address instead</summary>
+          <p className="muted small">The code above uses this computer’s network name, so it keeps working when your router changes the computer’s address. Some networks do not support names; use one of these then.</p>
+          {info.links.slice(1).map((link, i) => <PairCard key={link} link={link} qr={qr[i + 1]} />)}
+        </details>
+      )}
       {info.enabled && (
         <>
           <p className="muted small">
@@ -78,6 +77,23 @@ export function HostPanel() {
         </>
       )}
     </section>
+  )
+}
+
+function PairCard({ link, qr, children }: { link: string; qr?: string; children?: React.ReactNode }) {
+  return (
+    <div className="pair-card">
+      {qr && <img src={qr} alt="Pairing QR code" width={220} height={220} />}
+      <div>
+        {children}
+        <code className="pair-link">{link}</code>
+        <div className="row">
+          <button className="btn" onClick={async () => toast((await copyText(link)) ? 'Pairing link copied' : 'Copy failed')}>
+            <Icon name="copy" size={16} /> Copy link
+          </button>
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -126,14 +142,15 @@ export function PeerPanel() {
   const [scanning, setScanning] = useState(false)
   const [busy, setBusy] = useState(false)
   const paired = !!settings.peerUrl && !!settings.peerToken
+  const status = usePeerStatus()
 
   const sync = useCallback(async () => {
     setBusy(true)
     try {
       const r = await syncPeerNow()
       toast(`Synced with your computer: ${r.pushed} sent, ${r.pulled} received${r.skipped ? `, ${r.skipped} skipped` : ''}`)
-    } catch (e) {
-      toast(e instanceof Error ? e.message : 'Sync failed', 'error')
+    } catch {
+      // shown in the status line
     } finally {
       setBusy(false)
     }
@@ -146,10 +163,10 @@ export function PeerPanel() {
       const blocked = mixedContentProblem(target.url)
       if (blocked) return toast(blocked, 'error')
       setBusy(true)
-      const reachable = await pingPeer(target.url)
+      const info = await fetchPeerInfo(target.url)
       setBusy(false)
-      if (!reachable) return toast('Could not reach that computer. Same Wi-Fi? Is pairing switched on?', 'error')
-      await saveSettings({ peerUrl: target.url, peerToken: target.token })
+      if (!info) return toast('Could not reach that computer. Same Wi-Fi? Is phone pairing switched on there?', 'error')
+      await savePairing(target.url, target.token, info)
       setText('')
       setScanning(false)
       void sync()
@@ -162,12 +179,14 @@ export function PeerPanel() {
       <h3><Icon name="refresh" size={18} /> Sync with your computer</h3>
       {paired ? (
         <>
-          <p className="muted">Paired with <code>{settings.peerUrl}</code>. {settings.lastPeerSyncAt ? `Last synced ${timeAgo(settings.lastPeerSyncAt)}.` : 'Not synced yet.'}</p>
+          <SyncStatus status={status} lastSyncAt={settings.lastPeerSyncAt} />
+          {status.state === 'error' && <p className={`hint ${status.unreachable ? '' : 'bad'}`}>{status.message}</p>}
+          <p className="muted small">Paired with <code>{settings.peerUrl}</code>. New items you save here go to your computer, and from there to your other paired devices.</p>
           <div className="row">
-            <button className="btn primary" disabled={busy} onClick={() => void sync()}>
+            <button className="btn" disabled={busy} onClick={() => void sync()}>
               <Icon name="refresh" size={16} /> {busy ? 'Syncing…' : 'Sync now'}
             </button>
-            <button className="btn" onClick={() => saveSettings({ peerUrl: '', peerToken: '' })}>Unpair</button>
+            <button className="btn ghost" onClick={() => saveSettings({ peerUrl: '', peerToken: '', peerAltUrls: [] })}>Unpair</button>
             <label className="switch inline">
               <input type="checkbox" checked={settings.peerAutoSync} onChange={(e) => saveSettings({ peerAutoSync: e.target.checked })} />
               <span className="track" /> Auto-sync
@@ -199,4 +218,14 @@ export function PeerPanel() {
       )}
     </section>
   )
+}
+
+function SyncStatus({ status, lastSyncAt }: { status: PeerStatus; lastSyncAt?: number }) {
+  const last = lastSyncAt ? `last synced ${timeAgo(lastSyncAt)}` : 'not synced yet'
+  if (status.state === 'syncing') return <p><span className="status"><i /> Syncing…</span></p>
+  if (status.state === 'error')
+    return <p><span className="status warn"><i /> {status.unreachable ? 'Computer not reachable' : 'Sync failed'} · {last}</span></p>
+  if (status.state === 'ok') return <p><span className="status ok"><i /> Connected · {last}</span></p>
+  if (lastSyncAt) return <p><span className="status"><i /> Paired · {last}</span></p>
+  return <p><span className="status"><i /> Waiting for the first sync</span></p>
 }

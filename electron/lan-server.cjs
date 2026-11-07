@@ -99,9 +99,10 @@ function serveStatic(distDir, req, res) {
  * @param {(msg: object) => Promise<object>} opts.dispatch   forwards a message to the renderer
  * @param {boolean} opts.allowRpc        expose POST /api/rpc (phone sync)
  * @param {string[] | null} opts.allowedHosts  accepted Host headers (guards loopback server against DNS rebinding)
+ * @param {() => string[]} [opts.getPeerUrls]  every address a phone can reach this computer at (name first)
  */
 function createRequestHandler(opts) {
-  const { distDir, getToken, dispatch, allowRpc, allowedHosts } = opts
+  const { distDir, getToken, dispatch, allowRpc, allowedHosts, getPeerUrls } = opts
   return async (req, res) => {
     try {
       if (allowedHosts && !allowedHosts.includes(String(req.headers.host ?? '').toLowerCase())) {
@@ -115,7 +116,12 @@ function createRequestHandler(opts) {
         res.writeHead(204).end()
         return
       }
-      if (req.method === 'GET' && pathname === '/api/ping') return sendJson(res, 200, { app: 'mindvault', rpc: !!allowRpc })
+      if (req.method === 'GET' && pathname === '/api/ping') {
+        // The addresses let a paired phone find this computer again after its IP address changes.
+        const body = { app: 'mindvault', rpc: !!allowRpc }
+        if (getPeerUrls) body.urls = getPeerUrls()
+        return sendJson(res, 200, body)
+      }
 
       if (req.method === 'POST' && (pathname === '/api/clip' || (allowRpc && pathname === '/api/rpc'))) {
         const isClip = pathname === '/api/clip'
@@ -155,4 +161,18 @@ function createRequestHandler(opts) {
   }
 }
 
-module.exports = { createRequestHandler, tokenOk }
+// A name the network can resolve (mDNS): letters, digits and hyphens only.
+const HOST_LABEL_RE = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$/
+
+/**
+ * Addresses a phone can use to reach this computer. The network name (<name>.local) comes first because it
+ * survives the router handing out a new IP address; the IP addresses follow as fallbacks.
+ */
+function peerBases(hostname, ips, port) {
+  const name = String(hostname || '').trim()
+  const out = HOST_LABEL_RE.test(name) ? [`http://${name.toLowerCase()}.local:${port}`] : []
+  for (const ip of ips) out.push(`http://${ip}:${port}`)
+  return out
+}
+
+module.exports = { createRequestHandler, tokenOk, peerBases }

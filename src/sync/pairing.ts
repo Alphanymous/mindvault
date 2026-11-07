@@ -122,3 +122,27 @@ export function parseClip(x: unknown): ClipPayload | null {
   if (!html && !selection.trim()) return null
   return { url: c.url, title, html, selection }
 }
+
+const MAX_PEER_URLS = 8
+
+/**
+ * Addresses to try for the paired computer: the saved one first, then the others it reported.
+ * The list comes from another device, so only plain http(s) origins are kept, deduplicated and capped.
+ */
+export function peerCandidates(primary: string, others: unknown[]): string[] {
+  const out: string[] = []
+  for (const raw of [primary, ...others]) {
+    if (typeof raw !== 'string' || !raw) continue
+    let origin: string
+    try {
+      const u = new URL(raw)
+      if (u.protocol !== 'http:' && u.protocol !== 'https:') continue
+      origin = u.origin
+    } catch {
+      continue
+    }
+    if (!out.includes(origin)) out.push(origin)
+    if (out.length >= MAX_PEER_URLS) break
+  }
+  return out
+}
