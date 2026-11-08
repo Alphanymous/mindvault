@@ -2,12 +2,14 @@ import { saveSettings, useAppState } from '../../data/store'
 import { Icon } from '../Icon'
 import { dictationSupported } from '../useDictation'
 import { Section, Status } from './parts'
+import { VaultCard } from './VaultCard'
 
 export function GeneralTab() {
   const { settings } = useAppState()
   const voice = dictationSupported()
   return (
     <>
+      <VaultCard />
       <Section icon="eye" title="Appearance">
         <p className="muted">Dark is the signature look. Light is there for bright rooms.</p>
         <div className="seg">

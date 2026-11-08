@@ -11,6 +11,7 @@ import { isSignedIn } from '../sync/google'
 import { startFolderAutoSync } from '../sync/folder'
 import { syncPeerNow } from '../sync/peer'
 import { Capture } from './Capture'
+import { ClustersPage } from './ClustersPage'
 import { GraphView } from './GraphView'
 import { Home } from './Home'
 import { Icon } from './Icon'
@@ -225,6 +226,7 @@ export function App() {
           <NavLink route={{ name: 'library' }} active={route.name === 'library' && !route.c} icon="library" label="Library" />
           <NavLink route={{ name: 'prompts' }} active={route.name === 'prompts'} icon="prompt" label="Prompts" />
           <NavLink route={{ name: 'graph' }} active={route.name === 'graph'} icon="graph" label="Graph" />
+          <NavLink route={{ name: 'clusters' }} active={route.name === 'clusters'} icon="cluster" label="Clusters" />
         </nav>
         <div className="side-group">
           <h5>Smart views</h5>
@@ -259,6 +261,7 @@ export function App() {
       <main className="main">
         {route.name === 'home' && <Home onSearch={() => setPalette('')} onCapture={() => actions.openCapture()} />}
         {route.name === 'prompts' && <PromptsPage />}
+        {route.name === 'clusters' && <ClustersPage />}
         {route.name === 'library' && <Library route={route} />}
         {route.name === 'graph' && <GraphView key={route.focus ?? 'all'} focus={route.focus} />}
         {route.name === 'item' && <ItemView id={route.id} page={route.page} />}

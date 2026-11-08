@@ -4,11 +4,17 @@ import DOMPurify from 'dompurify'
 import { parseFrontmatter } from '../core/markdown'
 import { useAppState } from '../data/store'
 import { createItem } from '../data/store'
+import { enhanceProse, handleCodeCopy } from './proseEnhance'
 import { go } from './router'
 
 const marked = new Marked({ gfm: true, breaks: true })
 
 DOMPurify.addHook('afterSanitizeAttributes', (node) => {
+  // GFM task lists: the sanitizer drops `type`, which turns them into text boxes. Any input left is a read-only checkbox.
+  if (node.tagName === 'INPUT') {
+    node.setAttribute('type', 'checkbox')
+    node.setAttribute('disabled', '')
+  }
   if (node.tagName === 'A') {
     const href = node.getAttribute('href') ?? ''
     if (/^https?:/i.test(href)) {
@@ -47,6 +53,11 @@ export function Markdown({ source }: { source: string }) {
   const html = useMemo(() => renderMarkdown(source, links.resolve), [source, links])
 
   const onClick = async (e: MouseEvent<HTMLDivElement>) => {
+    // synchronous check: the wikilink branch below must still be able to preventDefault
+    if ((e.target as HTMLElement).closest('.code-copy')) {
+      void handleCodeCopy(e.target as HTMLElement)
+      return
+    }
     const a = (e.target as HTMLElement).closest('a')
     const href = a?.getAttribute('href')
     if (!a || !href?.startsWith('wikilink:')) return
@@ -72,6 +83,7 @@ export function Markdown({ source }: { source: string }) {
           a.classList.add('wikilink')
           if ((a.getAttribute('href') ?? '').includes('?missing')) a.classList.add('missing')
         })
+        enhanceProse(el)
       }}
     />
   )

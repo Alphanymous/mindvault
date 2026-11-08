@@ -12,7 +12,7 @@ export function Section({ icon, title, status, children }: { icon: string; title
   return (
     <section className="panel settings-section">
       <header className="section-title">
-        <h3><Icon name={icon} size={18} /> {title}</h3>
+        <h3><span className="icon-tile sm"><Icon name={icon} size={16} /></span> {title}</h3>
         {status}
       </header>
       {children}

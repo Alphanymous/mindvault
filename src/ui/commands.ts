@@ -68,6 +68,7 @@ export function makeCommands(a: AppActions): Command[] {
     nav('library', 'Go to Library', 'library', 'library', 'g l', 'all items browse'),
     nav('prompts', 'Go to Prompts', 'prompt', 'prompts', 'g p', 'toolbox'),
     nav('graph', 'Open the Graph', 'graph', 'graph', 'g g', 'map network'),
+    { id: 'clusters', label: 'Clusters & tags', icon: 'cluster', keywords: 'regions topics tag stats orphans', run: () => go({ name: 'clusters' }) },
     nav('settings', 'Settings & sync', 'settings', 'settings', 'g s', 'preferences pairing drive'),
     nav('back', 'Go back', 'back', 'back', 'b', 'previous history jump'),
     {

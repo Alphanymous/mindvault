@@ -34,7 +34,7 @@ export function HostPanel() {
 
   return (
     <section className="panel settings-section">
-      <h3><Icon name="upload" size={18} /> Pair your phone</h3>
+      <h3><span className="icon-tile sm"><Icon name="upload" size={16} /></span> Pair your phone</h3>
       <p className="muted">
         Sync notes, prompts and PDFs straight between your phone and this computer over your home Wi-Fi. No Google account needed. Only devices with the pairing code can connect.
       </p>
@@ -115,7 +115,7 @@ export function ClipperPanel() {
   if (!api || !info) return null
   return (
     <section className="panel settings-section">
-      <h3><Icon name="web" size={18} /> Browser clipper</h3>
+      <h3><span className="icon-tile sm"><Icon name="web" size={16} /></span> Browser clipper</h3>
       <p className="muted">
         Save the page you are looking at (or just the text you selected) from Chrome, Edge or Firefox straight into Mindvault, including pages that need you to be logged in.
         Drag this button to your bookmarks bar. Keep Mindvault running while you clip.
@@ -182,7 +182,7 @@ export function PeerPanel() {
 
   return (
     <section className="panel settings-section">
-      <h3><Icon name="refresh" size={18} /> Sync with your computer</h3>
+      <h3><span className="icon-tile sm"><Icon name="refresh" size={16} /></span> Sync with your computer</h3>
       {paired ? (
         <>
           <SyncStatus status={status} lastSyncAt={settings.lastPeerSyncAt} />

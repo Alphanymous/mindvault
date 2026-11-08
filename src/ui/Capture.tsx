@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { captureSignals } from '../core/noteStats'
 import { captureFile, captureText, captureImageWithOCR, type CaptureResult } from '../import/capture'
 import { Icon } from './Icon'
 import { toast } from './toast'
@@ -74,6 +75,9 @@ export function Capture({ onClose, initial = '', dictate = false }: { onClose():
     }
   }
 
+  const signals = useMemo(() => captureSignals(text), [text])
+  const found = signals.links.length + signals.tags.length + signals.urls
+
   const addFiles = (list: FileList | null) => {
     if (list) setFiles((f) => [...f, ...Array.from(list)])
   }
@@ -91,9 +95,15 @@ export function Capture({ onClose, initial = '', dictate = false }: { onClose():
         aria-label="Quick capture"
       >
         <div className="capture-head">
-          <h2>Quick capture</h2>
+          <span className="icon-tile"><Icon name="bolt" size={18} /></span>
+          <div className="capture-titles">
+            <h2>Quick capture</h2>
+            <p>Links are clipped, everything is filed for you.</p>
+          </div>
+          <span className="spacer" />
           <button className="icon-btn" onClick={onClose} aria-label="Close"><Icon name="x" /></button>
         </div>
+        <div className="capture-well">
         <textarea
           ref={ta}
           value={text}
@@ -103,6 +113,20 @@ export function Capture({ onClose, initial = '', dictate = false }: { onClose():
           rows={6}
           aria-label="Capture text"
         />
+          <div className="capture-stats">
+            <span className="stat-chip mono">{signals.words} words · {signals.chars} chars</span>
+          </div>
+        </div>
+        {found > 0 && (
+          <div className="capture-found" aria-live="polite">
+            <div className="found-head"><Icon name="sparkle" size={14} /> <span>Found in this capture</span></div>
+            <div className="chips">
+              {signals.links.map((l) => <span key={`l-${l}`} className="chip link-chip"><Icon name="link" size={12} /> [[{l}]]</span>)}
+              {signals.tags.map((t) => <span key={`t-${t}`} className="chip tag-chip">#{t}</span>)}
+              {signals.urls > 0 && <span className="chip web-chip"><Icon name="web" size={12} /> {signals.urls} web link{signals.urls === 1 ? '' : 's'} to clip</span>}
+            </div>
+          </div>
+        )}
         {voice.listening && <p className="listening"><span className="pulse" /> {'Listening\u2026'} {voice.interim && <i className="muted">{voice.interim}</i>}</p>}
         {voice.error && <p className="small danger-text">{voice.error}</p>}
         {files.length > 0 && (
@@ -125,14 +149,15 @@ export function Capture({ onClose, initial = '', dictate = false }: { onClose():
             </button>
             {voice.supported && (
               <button className={`btn ${voice.listening ? 'rec' : ''}`} onClick={() => (voice.listening ? voice.stop() : voice.start())} aria-pressed={voice.listening}>
-                <Icon name="sparkle" size={16} /> {voice.listening ? 'Stop' : 'Dictate'}
+                <Icon name="mic" size={16} /> {voice.listening ? 'Stop' : 'Dictate'}
               </button>
             )}
           </div>
           <span className="muted small hide-mobile">Ctrl+Enter to save</span>
           <span className="spacer" />
-          <button className="btn primary" disabled={busy || (!text.trim() && !files.length)} onClick={save}>
-            {busy ? 'Saving\u2026' : 'Save'}
+          <button className="btn primary save-btn" disabled={busy || (!text.trim() && !files.length)} onClick={save}>
+            <Icon name="check" size={16} /> {busy ? 'Saving\u2026' : 'Save'}
+            {found > 0 && !busy && <span className="save-count">{found} found</span>}
           </button>
         </div>
       </div>

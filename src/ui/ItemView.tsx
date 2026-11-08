@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { buildGraph, neighborhood } from '../core/links'
 import { normalizeTag, parseInlineTags } from '../core/markdown'
 import type { Annotation, GraphNode, Item } from '../core/types'
@@ -6,13 +6,16 @@ import { createItem, deleteItem, getBlob, updateItem, useAppState } from '../dat
 import { useRelated } from '../data/meaning'
 import { markOpened } from '../data/usage'
 import { GraphCanvas } from './GraphCanvas'
+import { Editor } from './item/Editor'
+import { Mentions } from './item/Mentions'
+import { Crumbs, LinkStrip, MetaChips } from './item/NoteHeader'
 import { Icon } from './Icon'
 import { PdfReader } from './PdfReader'
 import { PromptToolbox } from './PromptToolbox'
 import { AnnotatedMarkdown, HighlightsPanel, scrollToAnnotation } from './Reader'
 import { go, href } from './router'
 import { toast } from './toast'
-import { TYPE_META, formatBytes, hostOf, timeAgo, useDebounced } from './util'
+import { TYPE_META, formatBytes, hostOf, useDebounced } from './util'
 
 type Mode = 'read' | 'edit' | 'pdf'
 
@@ -116,6 +119,12 @@ function ItemBody({ item, page }: { item: Item; page?: number }) {
   }
 
   const canHighlight = item.type !== 'prompt'
+  const inspectLinks = () => {
+    const el = document.getElementById('item-links')
+    el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    el?.classList.remove('flash')
+    requestAnimationFrame(() => el?.classList.add('flash'))
+  }
 
   return (
     <div className="page item-page">
@@ -124,15 +133,20 @@ function ItemBody({ item, page }: { item: Item; page?: number }) {
           <a className="btn ghost" href="javascript:history.back()" onClick={(e) => { e.preventDefault(); history.back() }} aria-label="Back">
             <Icon name="back" size={18} />
           </a>
-          <span className="type-badge" data-type={item.type}><Icon name={meta.icon} size={14} /> {meta.label}</span>
-          <span className="spacer" />
-          <button className="btn ghost" onClick={() => updateItem(item.id, { pinned: !item.pinned })} title="Pin">
-            <Icon name="sparkle" size={16} /> {item.pinned ? 'Pinned' : 'Pin'}
+          <Crumbs folder={item.folder} />
+          <span className="type-badge" data-type={item.type}><Icon name={meta.icon} size={13} /> {meta.label}</span>
+          <button className={`btn ghost ${item.pinned ? 'pinned' : ''}`} onClick={() => updateItem(item.id, { pinned: !item.pinned })} title="Pin" aria-pressed={!!item.pinned}>
+            <Icon name="sparkle" size={16} /> <span className="hide-mobile">{item.pinned ? 'Pinned' : 'Pin'}</span>
           </button>
           <button className="btn ghost danger" onClick={remove} aria-label="Delete"><Icon name="trash" size={16} /></button>
         </header>
 
-        <input className="title-input" value={title} onChange={(e) => setTitle(e.target.value)} aria-label="Title" />
+        <div className="title-wrap">
+          <input className="title-input" value={title} onChange={(e) => setTitle(e.target.value)} aria-label="Title" />
+        </div>
+
+        <MetaChips item={item} text={draft} />
+        <LinkStrip backlinks={backlinks.length} outgoing={outgoing.length} onInspect={inspectLinks} />
 
         <div className="meta-row">
           <label className="folder-pick">
@@ -154,7 +168,7 @@ function ItemBody({ item, page }: { item: Item; page?: number }) {
             <Icon name="external" size={14} /> {hostOf(item.url)} <span className="muted">· open original</span>
           </a>
         )}
-        <div className="muted small">Updated {timeAgo(item.updatedAt)}{item.size ? ` · ${formatBytes(item.size)}` : ''}</div>
+        {item.size ? <div className="muted small">{formatBytes(item.size)}</div> : null}
 
         {(item.type === 'pdf' || item.type === 'file') && <BlobActions item={item} />}
 
@@ -177,6 +191,7 @@ function ItemBody({ item, page }: { item: Item; page?: number }) {
         ) : (
           <p className="muted">Empty. Switch to Edit and start writing. Link notes with [[double brackets]].</p>
         )}
+        {mode !== 'edit' && <Mentions title={item.title} backlinks={backlinks} />}
       </div>
 
       <aside className="item-side">
@@ -203,8 +218,10 @@ function ItemBody({ item, page }: { item: Item; page?: number }) {
             </ul>
           </section>
         )}
+        <div id="item-links" className="item-links">
         <LinkList title={`Linked from (${backlinks.length})`} items={backlinks} empty="No notes link here yet." />
         <LinkList title={`Links to (${outgoing.length})`} items={outgoing} empty="Use [[Note title]] to link." />
+        </div>
         {missing.length > 0 && (
           <section className="panel">
             <h4>Not created yet</h4>
@@ -298,79 +315,6 @@ function BlobActions({ item }: { item: Item }) {
     <div className="row">
       {item.type === 'pdf' && <button className="btn" disabled={busy} onClick={() => open(false)}><Icon name="external" size={16} /> Open PDF</button>}
       <button className="btn" disabled={busy} onClick={() => open(true)}><Icon name="download" size={16} /> Download original</button>
-    </div>
-  )
-}
-
-/** Textarea editor with [[wikilink]] autocomplete. */
-function Editor({ value, onChange, selfId }: { value: string; onChange(v: string): void; selfId: string }) {
-  const { items } = useAppState()
-  const ref = useRef<HTMLTextAreaElement>(null)
-  const [query, setQuery] = useState<{ q: string; start: number } | null>(null)
-  const [sel, setSel] = useState(0)
-
-  const options = useMemo(() => {
-    if (!query) return []
-    const q = query.q.toLowerCase()
-    return items
-      .filter((i) => !i.deleted && i.id !== selfId && i.title.toLowerCase().includes(q))
-      .sort((a, b) => Number(b.title.toLowerCase().startsWith(q)) - Number(a.title.toLowerCase().startsWith(q)) || b.updatedAt - a.updatedAt)
-      .slice(0, 6)
-  }, [query, items, selfId])
-
-  const detect = (el: HTMLTextAreaElement) => {
-    const before = el.value.slice(0, el.selectionStart)
-    const m = /\[\[([^\]\n|#]*)$/.exec(before)
-    setQuery(m ? { q: m[1], start: el.selectionStart - m[1].length } : null)
-    setSel(0)
-  }
-
-  const insert = (title: string) => {
-    const el = ref.current
-    if (!el || !query) return
-    const end = el.selectionStart
-    const after = el.value.slice(end).startsWith(']]') ? '' : ']]'
-    const next = el.value.slice(0, query.start) + title + after + el.value.slice(end)
-    onChange(next)
-    setQuery(null)
-    requestAnimationFrame(() => {
-      const pos = query.start + title.length + 2
-      el.focus()
-      el.setSelectionRange(pos, pos)
-    })
-  }
-
-  return (
-    <div className="editor">
-      <textarea
-        ref={ref}
-        value={value}
-        autoFocus
-        spellCheck
-        placeholder="Write in Markdown. [[Link]] to other notes, #tag inline."
-        aria-label="Note text"
-        onChange={(e) => {
-          onChange(e.target.value)
-          detect(e.target)
-        }}
-        onClick={(e) => detect(e.currentTarget)}
-        onKeyDown={(e) => {
-          if (!options.length) return
-          if (e.key === 'ArrowDown') { e.preventDefault(); setSel((s) => (s + 1) % options.length) }
-          else if (e.key === 'ArrowUp') { e.preventDefault(); setSel((s) => (s - 1 + options.length) % options.length) }
-          else if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); insert(options[sel].title) }
-          else if (e.key === 'Escape') setQuery(null)
-        }}
-      />
-      {options.length > 0 && (
-        <ul className="ac" role="listbox">
-          {options.map((o, i) => (
-            <li key={o.id} role="option" aria-selected={i === sel} className={i === sel ? 'on' : ''} onMouseDown={(e) => { e.preventDefault(); insert(o.title) }}>
-              <Icon name={TYPE_META[o.type].icon} size={14} /> {o.title}
-            </li>
-          ))}
-        </ul>
-      )}
     </div>
   )
 }

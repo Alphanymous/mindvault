@@ -53,6 +53,9 @@ export function searchGraph(nodes: GraphNode[], query: string, extra?: Map<strin
 /** A note's first words as plain text: no headings, markup or link brackets. */
 export function previewText(markdown: string, max = 160): string {
   const plain = markdown
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/\[![\w-]+\][+-]?/g, ' ')
+    .replace(/^(\s*[-*+]\s+)\[[ xX]\]\s+/gm, '$1')
     .split('\n')
     .filter((l) => !/^\s*#{1,6}\s/.test(l))
     .join(' ')

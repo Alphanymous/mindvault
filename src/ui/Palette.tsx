@@ -18,10 +18,14 @@ interface Entry {
   run(): void
 }
 
-const HELP_ROWS = [
-  ['>', 'commands'],
-  ['#', 'tags'],
-  ['@', 'folders & collections'],
+type Mode = 'search' | 'commands' | 'tags' | 'places'
+
+/** Filter chips: each one is a typed prefix, so the keyboard way and the click way are the same thing. */
+const FILTERS: { mode: Mode; prefix: string; icon: string; label: string }[] = [
+  { mode: 'search', prefix: '', icon: 'search', label: 'All' },
+  { mode: 'commands', prefix: '>', icon: 'chevron', label: 'Commands' },
+  { mode: 'tags', prefix: '#', icon: 'hash', label: 'Tags' },
+  { mode: 'places', prefix: '@', icon: 'folder', label: 'Folders' },
 ]
 
 export function Palette({ onClose, actions, initial = '' }: { onClose(): void; actions: AppActions; initial?: string }) {
@@ -34,7 +38,7 @@ export function Palette({ onClose, actions, initial = '' }: { onClose(): void; a
   useEffect(() => input.current?.focus(), [])
   const debounced = useDebounced(q, 350)
 
-  const mode = q.startsWith('>') ? 'commands' : q.startsWith('#') ? 'tags' : q.startsWith('@') ? 'places' : 'search'
+  const mode: Mode = q.startsWith('>') ? 'commands' : q.startsWith('#') ? 'tags' : q.startsWith('@') ? 'places' : 'search'
   const term = mode === 'search' ? q.trim() : q.slice(1).trim()
 
   // meaning-based neighbours arrive asynchronously (only when an embeddings endpoint is configured)
@@ -124,9 +128,23 @@ export function Palette({ onClose, actions, initial = '' }: { onClose(): void; a
 
   const placeholder = { search: 'Search everything…', commands: 'Type a command…', tags: 'Find a tag…', places: 'Find a folder or collection…' }[mode]
 
+  const setFilter = (prefix: string) => {
+    setQ(prefix + term)
+    input.current?.focus()
+  }
+  const indexed = items.filter((i) => !i.deleted).length
+  const section = mode === 'commands' ? 'Commands' : mode === 'tags' ? 'Tags' : mode === 'places' ? 'Folders & collections' : term ? 'Results' : 'Recent & quick actions'
+  const matchCount = entries.length
+
   return (
     <div className="overlay" onMouseDown={onClose}>
       <div className="palette glass" onMouseDown={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Search and commands">
+        <div className="palette-head">
+          <span className="icon-tile"><Icon name="graph" size={17} /></span>
+          <h2>Search</h2>
+          <span className="spacer" />
+          <button className="esc-btn" onClick={onClose} aria-label="Close"><kbd>esc</kbd> <Icon name="x" size={14} /></button>
+        </div>
         <div className="palette-input">
           <Icon name="search" />
           <input
@@ -142,15 +160,27 @@ export function Palette({ onClose, actions, initial = '' }: { onClose(): void; a
             aria-autocomplete="list"
             aria-activedescendant={entries[sel] ? `palette-opt-${sel}` : undefined}
           />
-          <kbd>esc</kbd>
+          {q && <button className="icon-btn clear" onClick={() => { setQ(''); input.current?.focus() }} aria-label="Clear"><Icon name="x" size={14} /></button>}
+        </div>
+        <div className="pl-filters" role="group" aria-label="Search in">
+          {FILTERS.map((f) => (
+            <button key={f.mode} className={`pl-filter ${mode === f.mode ? 'on' : ''}`} aria-pressed={mode === f.mode} onMouseDown={(e) => e.preventDefault()} onClick={() => setFilter(f.prefix)}>
+              <Icon name={f.icon} size={14} /> {f.label}
+            </button>
+          ))}
+        </div>
+        <div className="pl-section">
+          <span>{section}</span>
+          <small>{matchCount} {matchCount === 1 ? 'match' : 'matches'}</small>
         </div>
         <ul className="palette-list" id="palette-list" role="listbox" aria-label="Results">
           {entries.length === 0 && <li className="muted pad" role="option" aria-selected="false" aria-disabled="true">No matches</li>}
           {entries.map((e, i) => (
-            <li key={e.key} id={`palette-opt-${i}`} role="option" aria-selected={i === sel} className={i === sel ? 'on' : ''} onMouseEnter={() => setSel(i)} onClick={e.run}>
-              <Icon name={e.icon} size={17} />
+            <li key={e.key} id={`palette-opt-${i}`} role="option" aria-selected={i === sel} className={`${i === sel ? 'on' : ''} ${e.key.startsWith('c-') ? 'cmd' : ''}`} onMouseEnter={() => setSel(i)} onClick={e.run}>
+              <span className="pl-icon"><Icon name={e.icon} size={17} /></span>
               <span className="pl-main">
                 <span className="pl-label">{e.label}</span>
+                {e.hint && !e.key.startsWith('c-') && <span className="pl-crumb">{e.hint.split('/').join(' › ')}</span>}
                 {e.parts && (
                   <span className="pl-passage">
                     {e.parts.map((p, k) => (p.hit ? <mark key={k}>{p.text}</mark> : <span key={k}>{p.text}</span>))}
@@ -158,18 +188,17 @@ export function Palette({ onClose, actions, initial = '' }: { onClose(): void; a
                 )}
               </span>
               {e.badge && <span className="pl-badge">{e.badge}</span>}
-              {e.hint && <span className="pl-hint">{e.hint}</span>}
+              {e.hint && e.key.startsWith('c-') && <kbd className="pl-key">{e.hint}</kbd>}
+              <span className="pl-go"><Icon name="arrow" size={15} /></span>
             </li>
           ))}
         </ul>
         <div className="palette-foot">
-          {HELP_ROWS.map(([k, v]) => (
-            <button key={k} className="pl-tip" onMouseDown={(e) => { e.preventDefault(); setQ(k); input.current?.focus() }}>
-              <kbd>{k}</kbd> {v}
-            </button>
-          ))}
+          <span className="pl-tip"><kbd>↑↓</kbd> navigate</span>
+          <span className="pl-tip"><kbd>↵</kbd> open</span>
+          <span className="pl-tip hide-mobile"><kbd>tab</kbd> commands</span>
           <span className="spacer" />
-          <span className="muted small">↑↓ select · ↵ open</span>
+          <span className="pl-indexed"><i /> {indexed.toLocaleString()} items indexed</span>
         </div>
       </div>
     </div>

@@ -17,7 +17,7 @@ const NEIGHBOURHOOD_HOPS = 2
 const isTyping = (t: EventTarget | null) => t instanceof HTMLElement && !!t.closest('input, textarea, select, [contenteditable="true"]')
 
 export function GraphView({ focus }: { focus?: string }) {
-  const { items } = useAppState()
+  const { items, links } = useAppState()
   const [query, setQuery] = useState('')
   // tags and unwritten links are opt-in: they double the number of stars
   const [opts, setOpts] = useState<Omit<GraphOptions, 'filter' | 'types'>>({ ...DEFAULT_GRAPH_OPTIONS, showTags: false, showGhosts: false })
@@ -199,6 +199,11 @@ export function GraphView({ focus }: { focus?: string }) {
       </button>
       {panelOpen && (
         <div className="graph-panel glass">
+          <div className="panel-title"><Icon name="settings" size={15} /> <b>Graph settings</b></div>
+          <div className="stat-grid two">
+            <div className="stat"><small>Stars</small><b className="all">{data.nodes.length}</b></div>
+            <div className="stat"><small>Connections</small><b className="out">{data.edges.length}</b></div>
+          </div>
           <h4>Show</h4>
           {flag('showTags', 'Tags')}
           {flag('showFolders', 'Folders')}
@@ -214,7 +219,6 @@ export function GraphView({ focus }: { focus?: string }) {
           </div>
           <p className="muted small">Color = region. Shape = kind: dot note, ring web page, double ring PDF, cross prompt, square file.</p>
           <p className="muted small">Keys: F show everything · Tab next connection · Enter open · Esc let go</p>
-          <p className="muted small">{data.nodes.length} stars · {data.edges.length} connections</p>
         </div>
       )}
 
@@ -226,6 +230,11 @@ export function GraphView({ focus }: { focus?: string }) {
             {item?.folder && <span> · {item.folder}</span>}
           </div>
           <h3>{node.label}</h3>
+          <div className="stat-grid">
+            <div className="stat"><small>Backlinks</small><b className="in">{item ? (links.backlinks.get(item.id)?.length ?? 0) : '—'}</b></div>
+            <div className="stat"><small>Links out</small><b className="out">{item ? (links.outgoing.get(item.id)?.length ?? 0) : '—'}</b></div>
+            <div className="stat"><small>Total</small><b className="all">{node.degree}</b></div>
+          </div>
           {item && item.content.trim() && <p className="graph-card-preview">{previewText(item.content, 150)}</p>}
           {item && item.tags.length > 0 && (
             <div className="chips">
@@ -234,13 +243,14 @@ export function GraphView({ focus }: { focus?: string }) {
           )}
           {connections.length > 0 && (
             <>
-              <h4>{node.degree} connection{node.degree === 1 ? '' : 's'}</h4>
+              <h4><Icon name="cluster" size={12} /> Connected ({connections.length})</h4>
               <ul className="graph-card-links">
                 {connections.slice(0, MAX_CONNECTIONS).map((c) => (
                   <li key={c.id}>
                     <button onClick={() => setSelected(c.id)} title="Go to this star">
                       <Icon name={c.kind === 'item' ? TYPE_META[c.itemType ?? 'note'].icon : c.kind === 'folder' ? 'folder' : 'tag'} size={13} />
                       <span>{c.label}</span>
+                      <Icon name="arrow" size={12} />
                     </button>
                   </li>
                 ))}

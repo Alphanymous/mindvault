@@ -45,6 +45,11 @@ describe('searchGraph', () => {
 })
 
 describe('previewText', () => {
+  it('drops callout markers, task boxes and code blocks', () => {
+    const src = ['> [!tip] Remember', '> this', '- [x] done', '- [ ] todo', '```ts', 'const a = 1', '```', 'end'].join('\n')
+    expect(previewText(src)).toBe('Remember this done todo end')
+  })
+
   it('turns markdown into a short plain sentence', () => {
     expect(previewText('# Title\n\nSome **bold** text with a [[Link]] and [site](https://x.com).\n- item', 60)).toBe('Some bold text with a Link and site. item')
   })

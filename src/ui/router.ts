@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 export type Route =
   | { name: 'home' }
   | { name: 'prompts' }
+  | { name: 'clusters' }
   | { name: 'library'; folder?: string; type?: string; tag?: string; c?: string }
   | { name: 'graph'; focus?: string }
   | { name: 'item'; id: string; page?: number }
@@ -19,6 +20,8 @@ export function parseHash(hash: string): Route {
       return { name: 'library', c: 'new' }
     case 'prompts':
       return { name: 'prompts' }
+    case 'clusters':
+      return { name: 'clusters' }
     case 'library':
       return { name: 'library', folder: q.get('folder') ?? undefined, type: q.get('type') ?? undefined, tag: q.get('tag') ?? undefined, c: q.get('c') ?? undefined }
     case 'graph':
@@ -55,6 +58,8 @@ export function href(route: Route): string {
       return `#/pair/${route.token}`
     case 'prompts':
       return '#/prompts'
+    case 'clusters':
+      return '#/clusters'
     default:
       return '#/home'
   }
