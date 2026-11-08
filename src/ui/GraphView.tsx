@@ -1,5 +1,6 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { buildRegions } from '../core/clusters'
+import { connectionsOf, neighbourhood, previewText, searchGraph } from '../core/graphQuery'
 import { buildGraph, DEFAULT_GRAPH_OPTIONS, type GraphOptions } from '../core/links'
 import type { GraphNode, ItemType } from '../core/types'
 import { createItem, useAppState } from '../data/store'
@@ -9,28 +10,43 @@ import { go } from './router'
 import { TYPE_META, useDebounced } from './util'
 
 const SHAPE_HINT: Record<ItemType, string> = { note: 'dot', web: 'ring', pdf: 'double ring', prompt: 'cross', file: 'square' }
+const MAX_RESULTS = 6
+const MAX_CONNECTIONS = 8
+const NEIGHBOURHOOD_HOPS = 2
+
+const isTyping = (t: EventTarget | null) => t instanceof HTMLElement && !!t.closest('input, textarea, select, [contenteditable="true"]')
 
 export function GraphView({ focus }: { focus?: string }) {
   const { items } = useAppState()
-  const [filter, setFilter] = useState('')
+  const [query, setQuery] = useState('')
   // tags and unwritten links are opt-in: they double the number of stars
   const [opts, setOpts] = useState<Omit<GraphOptions, 'filter' | 'types'>>({ ...DEFAULT_GRAPH_OPTIONS, showTags: false, showGhosts: false })
   const [types, setTypes] = useState<Set<ItemType>>(new Set(Object.keys(TYPE_META) as ItemType[]))
   const [panelOpen, setPanelOpen] = useState(false)
-  const [atlasOpen, setAtlasOpen] = useState(() => window.innerWidth > 820)
+  const [atlasOpen, setAtlasOpen] = useState(() => window.innerWidth > 1100)
   const [selected, setSelected] = useState<string | null>(focus ?? null)
+  const [localOnly, setLocalOnly] = useState(false)
   const [spin, setSpin] = useState(true)
+  const [resultIdx, setResultIdx] = useState(0)
+  const [searchFocused, setSearchFocused] = useState(false)
   const handle = useRef<GraphHandle>(null)
-  const q = useDebounced(filter, 180)
+  const searchRef = useRef<HTMLInputElement>(null)
+  const q = useDebounced(query, 120)
 
-  const data = useMemo(
-    () => buildGraph(items, { ...opts, filter: q, types: types.size === 5 ? undefined : types }),
-    [items, opts, q, types],
-  )
+  const live = useMemo(() => items.filter((i) => !i.deleted), [items])
+  const full = useMemo(() => buildGraph(items, { ...opts, types: types.size === 5 ? undefined : types }), [items, opts, types])
+  // "Only this neighbourhood": the selected star and what sits within two connections of it
+  const data = useMemo(() => (localOnly && selected ? neighbourhood(full, selected, NEIGHBOURHOOD_HOPS) : full), [full, localOnly, selected])
   const regions = useMemo(() => buildRegions(data.nodes), [data])
+
+  // search lights stars up instead of removing them, so you keep your bearings
+  const extra = useMemo(() => new Map(live.map((i) => [i.id, `${i.folder} ${i.tags.map((t) => '#' + t).join(' ')}`])), [live])
+  const matches = useMemo(() => searchGraph(data.nodes, q, extra), [data, q, extra])
+  const highlight = useMemo(() => (q.trim() ? new Set(matches.map((n) => n.id)) : null), [q, matches])
+
   const node = data.nodes.find((n) => n.id === selected) ?? null
-  const live = items.filter((i) => !i.deleted)
   const item = node && node.kind === 'item' ? live.find((i) => i.id === node.id) : undefined
+  const connections = useMemo(() => (selected ? connectionsOf(data, selected) : []), [data, selected])
 
   const open = async (n: GraphNode) => {
     if (n.kind === 'item') go({ name: 'item', id: n.id })
@@ -41,6 +57,47 @@ export function GraphView({ focus }: { focus?: string }) {
       go({ name: 'item', id: it.id })
     }
   }
+
+  const pickResult = (n: GraphNode) => {
+    setSelected(n.id)
+    searchRef.current?.blur()
+  }
+
+  // keyboard: F fits everything, Tab steps through the selected star's connections, Enter opens, Esc lets go
+  const keyState = useRef({ selected, connections, node, open })
+  keyState.current = { selected, connections, node, open }
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.ctrlKey || e.metaKey || e.altKey || isTyping(e.target) || document.querySelector('.overlay')) return
+      const s = keyState.current
+      if (e.key === 'f' || e.key === 'F') {
+        e.preventDefault()
+        handle.current?.fit()
+      } else if (e.key === 'Escape' && s.selected) {
+        setSelected(null)
+        setLocalOnly(false)
+      } else if (e.key === 'Enter' && s.node) {
+        e.preventDefault()
+        void s.open(s.node)
+      } else if (e.key === 'Tab' && s.selected) {
+        // Tab cycles around the star you started from, instead of wandering off through each new star's links.
+        let step = stepRef.current
+        if (!step || (s.selected !== step.anchor && !step.ids.includes(s.selected))) {
+          step = { anchor: s.selected, ids: s.connections.map((c) => c.id) }
+          stepRef.current = step
+        }
+        if (!step.ids.length) return
+        e.preventDefault()
+        const at = step.ids.indexOf(s.selected)
+        const next = step.ids[(at + (e.shiftKey ? -1 : 1) + step.ids.length) % step.ids.length]
+        setSelected(next)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+  const stepRef = useRef<{ anchor: string; ids: string[] } | null>(null)
+  useEffect(() => setResultIdx(0), [q])
 
   const toggleType = (t: ItemType) => {
     const next = new Set(types)
@@ -55,6 +112,7 @@ export function GraphView({ focus }: { focus?: string }) {
       {label}
     </label>
   )
+  const results = matches.slice(0, MAX_RESULTS)
 
   return (
     <div className="graph-page">
@@ -64,19 +122,52 @@ export function GraphView({ focus }: { focus?: string }) {
           <p>Link notes with [[double brackets]] and they appear here as a living map.</p>
         </div>
       ) : (
-        <GraphCanvas ref={handle} data={data} selectedId={selected} onSelect={setSelected} onOpen={open} />
+        <GraphCanvas ref={handle} data={data} selectedId={selected} onSelect={setSelected} onOpen={open} highlight={highlight} />
       )}
 
-      <div className="graph-search glass">
-        <Icon name="search" size={16} />
-        <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Filter the graph…" aria-label="Filter graph" />
-        {filter && <button className="icon-btn" onClick={() => setFilter('')} aria-label="Clear"><Icon name="x" size={14} /></button>}
+      <div className="graph-search-wrap">
+        <div className="graph-search glass">
+          <Icon name="search" size={16} />
+          <input
+            ref={searchRef}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onFocus={() => setSearchFocused(true)}
+            onBlur={() => setSearchFocused(false)}
+            onKeyDown={(e) => {
+              if (e.key === 'ArrowDown') { e.preventDefault(); setResultIdx((i) => Math.min(results.length - 1, i + 1)) }
+              else if (e.key === 'ArrowUp') { e.preventDefault(); setResultIdx((i) => Math.max(0, i - 1)) }
+              else if (e.key === 'Enter' && results[resultIdx]) pickResult(results[resultIdx])
+              else if (e.key === 'Escape') { setQuery(''); e.currentTarget.blur() }
+            }}
+            placeholder="Find a star…"
+            aria-label="Find in the graph"
+            role="combobox"
+            aria-expanded={searchFocused && results.length > 0}
+            aria-controls="graph-results"
+            aria-activedescendant={results[resultIdx] ? `graph-result-${resultIdx}` : undefined}
+          />
+          {query && <span className="graph-count">{matches.length}</span>}
+          {query && <button className="icon-btn" onClick={() => setQuery('')} aria-label="Clear search"><Icon name="x" size={14} /></button>}
+        </div>
+        {searchFocused && query.trim() && (
+          <ul className="graph-results glass" id="graph-results" role="listbox" aria-label="Matching stars">
+            {results.length === 0 && <li className="muted small" role="option" aria-selected="false" aria-disabled="true">No star matches “{query.trim()}”</li>}
+            {results.map((n, i) => (
+              <li key={n.id} id={`graph-result-${i}`} role="option" aria-selected={i === resultIdx} className={i === resultIdx ? 'on' : ''} onMouseDown={(e) => { e.preventDefault(); pickResult(n) }} onMouseEnter={() => setResultIdx(i)}>
+                <Icon name={n.kind === 'item' ? TYPE_META[n.itemType ?? 'note'].icon : n.kind === 'folder' ? 'folder' : 'tag'} size={14} />
+                <span>{n.label}</span>
+                <small>{n.degree}</small>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
 
       <div className="graph-zoom glass">
         <button className="icon-btn" onClick={() => handle.current?.zoomBy(1.4)} aria-label="Zoom in"><Icon name="plus" /></button>
         <button className="icon-btn" onClick={() => handle.current?.zoomBy(1 / 1.4)} aria-label="Zoom out"><Icon name="minus" /></button>
-        <button className="icon-btn" onClick={() => handle.current?.fit()} aria-label="Show everything" title="Show everything"><Icon name="fit" /></button>
+        <button className="icon-btn" onClick={() => handle.current?.fit()} aria-label="Show everything (F)" title="Show everything (F)"><Icon name="fit" /></button>
         <button className="icon-btn" onClick={() => handle.current?.focusSelected()} disabled={!selected} aria-label="Fly to selected" title="Fly to selected"><Icon name="target" /></button>
         <button className={`icon-btn ${spin ? 'on' : ''}`} onClick={() => setSpin(handle.current?.toggleSpin() ?? false)} aria-pressed={spin} aria-label="Slow rotation" title="Slow rotation"><Icon name="spin" /></button>
       </div>
@@ -122,20 +213,53 @@ export function GraphView({ focus }: { focus?: string }) {
             ))}
           </div>
           <p className="muted small">Color = region. Shape = kind: dot note, ring web page, double ring PDF, cross prompt, square file.</p>
+          <p className="muted small">Keys: F show everything · Tab next connection · Enter open · Esc let go</p>
           <p className="muted small">{data.nodes.length} stars · {data.edges.length} connections</p>
         </div>
       )}
 
       {node && (
-        <div className="graph-card glass">
-          <div className="muted small">{node.kind === 'item' ? TYPE_META[node.itemType ?? 'note'].label : node.kind === 'ghost' ? 'Not written yet' : node.kind}</div>
+        <aside className="graph-card glass" aria-label="Selected star">
+          <div className="graph-card-kind muted small">
+            <Icon name={node.kind === 'item' ? TYPE_META[node.itemType ?? 'note'].icon : node.kind === 'folder' ? 'folder' : 'tag'} size={12} />
+            {node.kind === 'item' ? TYPE_META[node.itemType ?? 'note'].label : node.kind === 'ghost' ? 'Not written yet' : node.kind}
+            {item?.folder && <span> · {item.folder}</span>}
+          </div>
           <h3>{node.label}</h3>
-          {item && item.folder && <div className="muted small"><Icon name="folder" size={12} /> {item.folder}</div>}
-          <div className="muted small">{node.degree} connection{node.degree === 1 ? '' : 's'}</div>
-          <button className="btn primary block" onClick={() => open(node)}>
-            {node.kind === 'ghost' ? 'Create note' : node.kind === 'item' ? 'Open' : 'Show items'}
-          </button>
-        </div>
+          {item && item.content.trim() && <p className="graph-card-preview">{previewText(item.content, 150)}</p>}
+          {item && item.tags.length > 0 && (
+            <div className="chips">
+              {item.tags.slice(0, 6).map((t) => <span key={t} className="chip">#{t}</span>)}
+            </div>
+          )}
+          {connections.length > 0 && (
+            <>
+              <h4>{node.degree} connection{node.degree === 1 ? '' : 's'}</h4>
+              <ul className="graph-card-links">
+                {connections.slice(0, MAX_CONNECTIONS).map((c) => (
+                  <li key={c.id}>
+                    <button onClick={() => setSelected(c.id)} title="Go to this star">
+                      <Icon name={c.kind === 'item' ? TYPE_META[c.itemType ?? 'note'].icon : c.kind === 'folder' ? 'folder' : 'tag'} size={13} />
+                      <span>{c.label}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+              {connections.length > MAX_CONNECTIONS && <p className="muted small">and {connections.length - MAX_CONNECTIONS} more</p>}
+            </>
+          )}
+          <div className="graph-card-actions">
+            <button className="btn primary" onClick={() => open(node)}>
+              {node.kind === 'ghost' ? 'Create note' : node.kind === 'item' ? 'Open' : 'Show items'}
+            </button>
+            {connections.length > 0 && (
+              <button className={`btn ${localOnly ? 'on' : ''}`} onClick={() => setLocalOnly(!localOnly)} aria-pressed={localOnly} title="Show only this star and what sits within two connections">
+                <Icon name="target" size={15} /> {localOnly ? 'Show all' : 'Neighbourhood'}
+              </button>
+            )}
+            <button className="icon-btn" onClick={() => { setSelected(null); setLocalOnly(false) }} aria-label="Close"><Icon name="x" size={15} /></button>
+          </div>
+        </aside>
       )}
     </div>
   )

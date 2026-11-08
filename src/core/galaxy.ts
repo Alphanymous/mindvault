@@ -443,7 +443,7 @@ export function fitCamera(sys: System, cam: Camera, aspect: number): Camera {
   const rad = Math.max(40, dists[Math.min(dists.length - 1, Math.floor(dists.length * 0.93))] + 12)
   const vfov = cam.fov
   const hfov = 2 * Math.atan(Math.tan(vfov / 2) * Math.max(aspect, 0.3))
-  const dist = (rad * 1.18) / Math.tan(Math.min(vfov, hfov) / 2)
+  const dist = (rad * 1.06) / Math.tan(Math.min(vfov, hfov) / 2)
   return { ...cam, target: c, dist: Math.min(Math.max(dist, 120), 4000) }
 }
 

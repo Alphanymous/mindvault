@@ -7,7 +7,6 @@ import {
   createSystem,
   fitCamera,
   focalLength,
-  hash01,
   hitTest,
   project,
   stepSystem,
@@ -21,6 +20,11 @@ import {
 } from '../core/galaxy'
 import { buildRegions, regionOf, regionRgb, type Region } from '../core/clusters'
 import type { GraphData, GraphNode } from '../core/types'
+import { bendPoint, bloom, drawLabelPill, drawRipple, easeInOut, glowSprite, hazeSprite, makeDust, makeSky, nebula, readPalette, starColor, type Dust, type Fly, type Palette, type RGB, type Sky } from './graphFx'
+
+/** How long the ripple after selecting a star lasts, and how strong the glow around bright stars is. */
+const RIPPLE_MS = 1100
+const BLOOM_STRENGTH = 0.42
 
 export interface GraphHandle {
   zoomBy(factor: number): void
@@ -41,160 +45,11 @@ interface Props {
   onSelect(id: string | null): void
   onOpen(node: GraphNode): void
   compact?: boolean
+  /** Ids that match the search: they stay bright, everything else dims. Null when not searching. */
+  highlight?: Set<string> | null
 }
 
-type RGB = [number, number, number]
-
-interface Palette {
-  accent: RGB
-  note: RGB
-  pdf: RGB
-  web: RGB
-  prompt: RGB
-  file: RGB
-  tag: RGB
-  folder: RGB
-  text: string
-}
-
-let colorProbe: CanvasRenderingContext2D | null = null
-/** Any CSS color (hsl(), color-mix(), hex…) to RGB, by letting the browser paint one pixel. */
-function toRgb(css: string, fallback: RGB): RGB {
-  try {
-    colorProbe ??= Object.assign(document.createElement('canvas'), { width: 1, height: 1 }).getContext('2d', { willReadFrequently: true })
-    if (!colorProbe) return fallback
-    colorProbe.clearRect(0, 0, 1, 1)
-    colorProbe.fillStyle = '#000'
-    colorProbe.fillStyle = css
-    colorProbe.fillRect(0, 0, 1, 1)
-    const d = colorProbe.getImageData(0, 0, 1, 1).data
-    return [d[0], d[1], d[2]]
-  } catch {
-    return fallback
-  }
-}
-
-function readPalette(): Palette {
-  const cs = getComputedStyle(document.documentElement)
-  const v = (n: string) => cs.getPropertyValue(n).trim()
-  const dark = document.documentElement.getAttribute('data-theme') !== 'light'
-  // The galaxy is always drawn on a dark sky. In light mode the item colors are too dark for that, so use the dark-theme star colors.
-  const star = (name: string, fb: RGB, darkCss: string): RGB => toRgb(dark ? v(name) : darkCss, fb)
-  return {
-    accent: toRgb(dark ? v('--accent') : 'hsl(var(--h) 80% 62%)'.replace('var(--h)', v('--h') || '14'), [224, 100, 58]),
-    note: star('--c-note', [238, 230, 218], 'hsl(36 30% 90%)'),
-    pdf: star('--c-pdf', [255, 130, 80], 'hsl(18 92% 63%)'),
-    web: star('--c-web', [130, 190, 245], 'hsl(208 82% 71%)'),
-    prompt: star('--c-prompt', [250, 225, 110], 'hsl(48 92% 68%)'),
-    file: star('--c-file', [170, 160, 150], 'hsl(30 10% 64%)'),
-    tag: star('--c-tag', [150, 140, 130], 'hsl(30 10% 62%)'),
-    folder: toRgb(dark ? v('--c-folder') : 'hsl(var(--h) 55% 64%)'.replace('var(--h)', v('--h') || '14'), [220, 140, 110]),
-    text: 'rgb(244 238 230)',
-  }
-}
-
-function starColor(pal: Palette, s: Star): RGB {
-  const n = s.node
-  if (n.kind === 'tag') return pal.tag
-  if (n.kind === 'folder') return pal.folder
-  if (n.kind === 'ghost') return pal.file
-  return pal[n.itemType ?? 'note'] ?? pal.note
-}
-
-const glowCache = new Map<string, HTMLCanvasElement>()
-/** A soft round star: white-hot core fading through the color into nothing. Drawn once, stamped many times. */
-function glowSprite(rgb: RGB, size = 128): HTMLCanvasElement {
-  const key = `${rgb.join(',')}:${size}`
-  const hit = glowCache.get(key)
-  if (hit) return hit
-  const c = document.createElement('canvas')
-  c.width = c.height = size
-  const g = c.getContext('2d')!
-  const h = size / 2
-  const grad = g.createRadialGradient(h, h, 0, h, h, h)
-  const [r, gr, b] = rgb
-  const mix = (k: number) => `${Math.round(r + (255 - r) * k)},${Math.round(gr + (255 - gr) * k)},${Math.round(b + (255 - b) * k)}`
-  grad.addColorStop(0, `rgba(${mix(0.55)},0.95)`)
-  grad.addColorStop(0.08, `rgba(${mix(0.3)},0.8)`)
-  grad.addColorStop(0.25, `rgba(${r},${gr},${b},0.38)`)
-  grad.addColorStop(0.55, `rgba(${r},${gr},${b},0.09)`)
-  grad.addColorStop(1, `rgba(${r},${gr},${b},0)`)
-  g.fillStyle = grad
-  g.fillRect(0, 0, size, size)
-  glowCache.set(key, c)
-  return c
-}
-
-const hazeCache = new Map<string, HTMLCanvasElement>()
-/** A very soft colored cloud (no hot core) used behind each region. */
-function hazeSprite(rgb: RGB, size = 128): HTMLCanvasElement {
-  const key = rgb.join(',')
-  const hit = hazeCache.get(key)
-  if (hit) return hit
-  const c = document.createElement('canvas')
-  c.width = c.height = size
-  const g = c.getContext('2d')!
-  const h = size / 2
-  const grad = g.createRadialGradient(h, h, 0, h, h, h)
-  grad.addColorStop(0, `rgba(${rgb[0]},${rgb[1]},${rgb[2]},0.2)`)
-  grad.addColorStop(0.45, `rgba(${rgb[0]},${rgb[1]},${rgb[2]},0.08)`)
-  grad.addColorStop(1, `rgba(${rgb[0]},${rgb[1]},${rgb[2]},0)`)
-  g.fillStyle = grad
-  g.fillRect(0, 0, size, size)
-  hazeCache.set(key, c)
-  return c
-}
-
-interface Sky {
-  dir: V3
-  size: number
-  seed: number
-  tint: RGB
-}
-
-function makeSky(count: number): Sky[] {
-  return Array.from({ length: count }, (_, i) => {
-    const u = hash01('sky' + i, 1) * 2 - 1
-    const a = hash01('sky' + i, 2) * Math.PI * 2
-    const r = Math.sqrt(1 - u * u)
-    const warm = hash01('sky' + i, 3)
-    return {
-      dir: { x: r * Math.cos(a), y: u, z: r * Math.sin(a) },
-      size: 0.5 + Math.pow(hash01('sky' + i, 4), 3) * 1.6,
-      seed: hash01('sky' + i, 5) * 10,
-      tint: warm < 0.18 ? [255, 205, 170] : warm > 0.82 ? [180, 210, 255] : [245, 245, 250],
-    }
-  })
-}
-
-interface Dust {
-  r: number
-  a0: number
-  y: number
-  size: number
-  alpha: number
-}
-
-/** Decorative spiral-arm dust in world space; it orbits the centre with differential rotation. */
-function makeDust(count: number): Dust[] {
-  return Array.from({ length: count }, (_, i) => {
-    const arm = i % 3
-    const r = 30 + 520 * Math.pow(hash01('dust' + i, 1), 0.7)
-    const a = r * 0.011 + (arm * Math.PI * 2) / 3 + (hash01('dust' + i, 2) - 0.5) * (0.9 + r * 0.0012)
-    return { r, a0: a, y: (hash01('dust' + i, 3) - 0.5) * 22 * (1 + r / 300), size: 0.6 + hash01('dust' + i, 4) * 1.2, alpha: 0.06 + hash01('dust' + i, 5) * 0.2 }
-  })
-}
-
-const easeInOut = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2)
-
-interface Fly {
-  from: { target: V3; dist: number }
-  to: { target: V3; dist: number }
-  t0: number
-  dur: number
-}
-
-export const GraphCanvas = forwardRef<GraphHandle, Props>(function GraphCanvas({ data, selectedId, onSelect, onOpen, compact }, ref) {
+export const GraphCanvas = forwardRef<GraphHandle, Props>(function GraphCanvas({ data, selectedId, onSelect, onOpen, compact, highlight }, ref) {
   const wrapRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const sysRef = useRef<System>(createSystem({ nodes: [], edges: [] }))
@@ -218,6 +73,10 @@ export const GraphCanvas = forwardRef<GraphHandle, Props>(function GraphCanvas({
   propsRef.current = { onSelect, onOpen, compact: !!compact }
   const introRef = useRef<{ t0: number; from: number } | null>(null)
   const calm = useRef(typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches)
+  const highlightRef = useRef<Set<string> | null>(null)
+  highlightRef.current = highlight && highlight.size ? highlight : highlight ? new Set() : null
+  const rippleRef = useRef<{ idx: number; t0: number } | null>(null)
+  const bloomScratch = useRef<HTMLCanvasElement | null>(null)
 
   const touch = useCallback(() => {
     idleSince.current = performance.now()
@@ -291,6 +150,7 @@ export const GraphCanvas = forwardRef<GraphHandle, Props>(function GraphCanvas({
     selectedRef.current = idx
     if (idx >= 0) {
       const s = sysRef.current.stars[idx]
+      rippleRef.current = { idx, t0: performance.now() }
       followRef.current = idx
       flyTo(s.p, clamp(camRef.current.dist, 160, propsRef.current.compact ? 420 : 380))
     } else {
@@ -337,6 +197,11 @@ export const GraphCanvas = forwardRef<GraphHandle, Props>(function GraphCanvas({
         g.fillStyle = cg
         g.fillRect(0, 0, bg.width, bg.height)
       }
+      g.imageSmoothingEnabled = true
+      g.imageSmoothingQuality = 'high'
+      g.globalAlpha = propsRef.current.compact ? 0.35 : 0.5
+      g.drawImage(nebula(pal.accent), 0, 0, bg.width, bg.height)
+      g.globalAlpha = 1
       bgRef.current = bg
     }
 
@@ -455,6 +320,9 @@ export const GraphCanvas = forwardRef<GraphHandle, Props>(function GraphCanvas({
       const focus = hoverRef.current >= 0 ? hoverRef.current : selectedRef.current
       const near = new Set<number>(focus >= 0 ? [focus, ...sys.neighbors[focus]] : [])
       const fade = (depth: number) => clamp(1.35 - depth / (cam.dist * 2.3), 0.22, 1)
+      const hlIds = highlightRef.current
+      const hl = hlIds ? new Set(sys.stars.filter((st) => hlIds.has(st.node.id)).map((st) => st.index)) : null
+      const dimmed = (i: number) => (focus >= 0 && !near.has(i)) || (!!hl && !hl.has(i) && i !== focus)
       const colorOf = (s: Star): RGB => {
         const region = regionOf(s.node)
         return (region && regionColors.current.get(region)) || starColor(pal, s)
@@ -512,7 +380,7 @@ export const GraphCanvas = forwardRef<GraphHandle, Props>(function GraphCanvas({
         const B = proj[b.b]
         if (!A.visible || !B.visible) continue
         const lit = focus >= 0 && (b.a === focus || b.b === focus)
-        const dim = focus >= 0 && !lit
+        const dim = (focus >= 0 && !lit) || (!!hl && !hl.has(b.a) && !hl.has(b.b))
         const depth = (A.depth + B.depth) / 2
         const base = b.kind === 'link' ? 0.2 : b.kind === 'tag' ? 0.045 : 0.02
         const alpha = (lit ? 0.9 : dim ? base * 0.2 : base) * fade(depth)
@@ -521,17 +389,31 @@ export const GraphCanvas = forwardRef<GraphHandle, Props>(function GraphCanvas({
         const mixc = (k: number) => [Math.round(ca[0] + (cb[0] - ca[0]) * k), Math.round(ca[1] + (cb[1] - ca[1]) * k), Math.round(ca[2] + (cb[2] - ca[2]) * k)]
         const [r, gg, bb] = b.kind === 'link' ? mixc(0.5) : b.kind === 'tag' ? [190, 185, 180] : ca
         const k = lit ? 0.45 : 0
-        g.strokeStyle = `rgba(${Math.round(r + (255 - r) * k)},${Math.round(gg + (255 - gg) * k)},${Math.round(bb + (255 - bb) * k)},${alpha})`
-        g.lineWidth = (lit ? 1.5 : 0.85) * clamp(Math.min(A.scale, B.scale) * 4.5, 0.55, 1.35)
+        const tone = (c: number[]) => `rgba(${Math.round(c[0] + (255 - c[0]) * k)},${Math.round(c[1] + (255 - c[1]) * k)},${Math.round(c[2] + (255 - c[2]) * k)},${alpha})`
+        if (b.kind === 'link' && !lowQuality.current) {
+          const grad = g.createLinearGradient(A.x, A.y, B.x, B.y)
+          grad.addColorStop(0, tone(ca))
+          grad.addColorStop(1, tone(cb))
+          g.strokeStyle = grad
+        } else {
+          g.strokeStyle = tone([r, gg, bb])
+        }
+        g.lineWidth = (lit ? 1.7 : b.kind === 'link' ? 1 : 0.8) * clamp(Math.min(A.scale, B.scale) * 4.5, 0.55, 1.4)
+        const ctrl = bendPoint(A.x, A.y, B.x, B.y, b.seed)
         g.beginPath()
         g.moveTo(A.x, A.y)
-        g.lineTo(B.x, B.y)
+        if (b.kind === 'link') g.quadraticCurveTo(ctrl.x, ctrl.y, B.x, B.y)
+        else g.lineTo(B.x, B.y)
         g.stroke()
         if (lit && !calm.current && !lowQuality.current) {
           const p = (t * 0.42 + b.seed) % 1
           const dir = b.a === focus ? p : 1 - p
           g.globalAlpha = 1
-          g.drawImage(glowSprite([r, gg, bb] as RGB, 64), A.x + (B.x - A.x) * dir - 9, A.y + (B.y - A.y) * dir - 9, 18, 18)
+          // a spark travelling along the (possibly curved) bond, away from the focused star
+          const u = 1 - dir
+          const px = b.kind === 'link' ? u * u * A.x + 2 * u * dir * ctrl.x + dir * dir * B.x : A.x + (B.x - A.x) * dir
+          const py = b.kind === 'link' ? u * u * A.y + 2 * u * dir * ctrl.y + dir * dir * B.y : A.y + (B.y - A.y) * dir
+          g.drawImage(glowSprite([r, gg, bb] as RGB, 64), px - 9, py - 9, 18, 18)
         }
       }
 
@@ -540,7 +422,7 @@ export const GraphCanvas = forwardRef<GraphHandle, Props>(function GraphCanvas({
         const s = sys.stars[i]
         const p = proj[i]
         const col = colorOf(s)
-        const a = fade(p.depth) * (focus >= 0 && !near.has(i) ? 0.3 : 1)
+        const a = fade(p.depth) * (dimmed(i) ? 0.22 : 1)
         const rad = Math.max(s.r * p.scale, 1.1)
         const kind = s.node.kind
         if (kind === 'folder') {
@@ -606,6 +488,14 @@ export const GraphCanvas = forwardRef<GraphHandle, Props>(function GraphCanvas({
             g.fill()
           }
         }
+        if (hl && hl.has(i) && i !== selectedRef.current) {
+          g.globalAlpha = 0.85
+          g.strokeStyle = `rgba(${col[0]},${col[1]},${col[2]},0.9)`
+          g.lineWidth = 1.2
+          g.beginPath()
+          g.arc(p.x, p.y, rad * 2.6 + 3, 0, Math.PI * 2)
+          g.stroke()
+        }
         if (i === selectedRef.current) {
           g.globalAlpha = 1
           const ring = rad * (2.4 + (calm.current ? 0 : 0.35 * Math.sin(t * 3)))
@@ -621,6 +511,27 @@ export const GraphCanvas = forwardRef<GraphHandle, Props>(function GraphCanvas({
           g.moveTo(p.x, p.y - ring * 2.4)
           g.lineTo(p.x, p.y + ring * 2.4)
           g.stroke()
+        }
+      }
+
+      if (!compactMode && !lowQuality.current) {
+        bloomScratch.current ??= document.createElement('canvas')
+        bloom(g, canvas, bloomScratch.current, w, h, BLOOM_STRENGTH)
+        g.setTransform(dpr, 0, 0, dpr, 0, 0)
+      }
+      const ripple = rippleRef.current
+      if (ripple && sys.stars[ripple.idx] && proj[ripple.idx]?.visible && !calm.current) {
+        const age = (now - ripple.t0) / RIPPLE_MS
+        if (age >= 1) rippleRef.current = null
+        else {
+          const p = proj[ripple.idx]
+          const col = colorOf(sys.stars[ripple.idx])
+          const neighbours = sys.neighbors[ripple.idx].flatMap((n) => {
+            const q = proj[n]
+            return q?.visible ? [{ x: q.x, y: q.y, halo: Math.max(sys.stars[n].r * q.scale, 1.1) * 5, col: colorOf(sys.stars[n]) }] : []
+          })
+          drawRipple(g, p, col, age, neighbours)
+          g.globalAlpha = 1
         }
       }
 
@@ -685,21 +596,17 @@ export const GraphCanvas = forwardRef<GraphHandle, Props>(function GraphCanvas({
         if (shown >= budget && priority < 90) break
         const s = sys.stars[i]
         const p = proj[i]
-        const size = clamp(12 * Math.sqrt(p.scale * 4.2), 10.5, 15)
-        const label = s.node.label.length > 26 ? s.node.label.slice(0, 25) + '…' : s.node.label
-        const width = label.length * size * 0.54
-        const y = p.y + Math.max(s.r * p.scale * 1.5, 6) + 4
-        const box = { x0: p.x - width / 2, x1: p.x + width / 2, y0: y, y1: y + size + 2 }
+        const size = clamp(11.5 * Math.sqrt(p.scale * 4.2), 10.5, 14)
+        const label = s.node.label.length > 28 ? s.node.label.slice(0, 27) + '…' : s.node.label
+        g.font = `${priority >= 90 ? 650 : 520} ${size}px Inter, system-ui, sans-serif`
+        const width = g.measureText(label).width + size * 1.24
+        const y = p.y + Math.max(s.r * p.scale * 1.6, 7) + 5
+        const box = { x0: p.x - width / 2, x1: p.x + width / 2, y0: y, y1: y + size * 1.62 }
         if (priority < 90 && taken.some((t) => box.x0 < t.x1 && box.x1 > t.x0 && box.y0 < t.y1 && box.y1 > t.y0)) continue
         taken.push(box)
         shown++
-        g.font = `${priority >= 90 ? 650 : 500} ${size}px Inter, system-ui, sans-serif`
-        g.globalAlpha = priority >= 70 ? 1 : fade(p.depth) * 0.85
-        g.lineWidth = 3.5
-        g.strokeStyle = 'rgba(4,4,6,0.88)'
-        g.strokeText(label, p.x, y)
-        g.fillStyle = priority >= 70 ? pal.text : 'rgba(225,218,208,0.92)'
-        g.fillText(label, p.x, y)
+        g.globalAlpha = priority >= 70 ? 1 : fade(p.depth) * 0.9
+        drawLabelPill(g, label, p.x, y, size, colorOf(s), priority >= 70)
       }
       g.globalAlpha = 1
       g.globalCompositeOperation = 'source-over'
