@@ -3,41 +3,10 @@ import { getState, saveSettings } from '../data/store'
 import { isNativeApp } from '../import/web'
 import { localSide } from './localSide'
 import { peerCandidates } from './pairing'
-import { syncWithPeer, type PeerSyncReport, type RpcMessage, type Transport } from './peerEngine'
+import { PeerUnreachable, signedTransport } from './peerAuth'
+import { syncWithPeer, type PeerSyncReport } from './peerEngine'
 
-const REQUEST_TIMEOUT_MS = 120_000
 const PING_TIMEOUT_MS = 6000
-
-export const UNREACHABLE_MESSAGE =
-  'Can’t reach your computer. Make sure it is on, Mindvault is open there with phone pairing switched on, and both are on the same Wi-Fi. Syncing resumes by itself when it is back.'
-
-class PeerUnreachable extends Error {
-  constructor() {
-    super(UNREACHABLE_MESSAGE)
-  }
-}
-
-export function httpTransport(baseUrl: string, token: string): Transport {
-  const url = `${baseUrl.replace(/\/+$/, '')}/api/rpc`
-  return {
-    async call(msg: RpcMessage) {
-      let res: Response
-      try {
-        res = await fetch(url, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
-          body: JSON.stringify(msg),
-          signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-        })
-      } catch {
-        throw new PeerUnreachable()
-      }
-      if (res.status === 401) throw new Error('Your computer rejected the pairing code. Reset it there and pair again.')
-      if (!res.ok) throw new Error(`Your computer answered with error ${res.status}`)
-      return (await res.json()) as Record<string, unknown>
-    },
-  }
-}
 
 /**
  * Browsers refuse http requests from an https page. Explain it instead of showing a network error.
@@ -56,21 +25,28 @@ export interface PeerInfo {
   urls: string[]
 }
 
-/** Ask a computer whether it runs Mindvault. Returns null when it does not answer. */
-export async function fetchPeerInfo(baseUrl: string): Promise<PeerInfo | null> {
+/**
+ * Ask the paired computer for its addresses over a signed request, which also proves it knows the pairing code.
+ * Returns null when nothing answers; throws when something answers but cannot prove it is the computer.
+ */
+export async function fetchPeerInfo(baseUrl: string, token: string): Promise<PeerInfo | null> {
   try {
-    const res = await fetch(`${baseUrl.replace(/\/+$/, '')}/api/ping`, { signal: AbortSignal.timeout(PING_TIMEOUT_MS) })
-    const json = (await res.json()) as { app?: string; urls?: unknown }
-    if (json.app !== 'mindvault') return null
-    return { urls: Array.isArray(json.urls) ? peerCandidates('', json.urls) : [] }
-  } catch {
-    return null
+    const res = await signedTransport(baseUrl, token).call({ op: 'peerInfo' })
+    return { urls: res.ok && Array.isArray(res.urls) ? peerCandidates('', res.urls) : [] }
+  } catch (e) {
+    if (e instanceof PeerUnreachable) return null
+    throw e
   }
 }
 
-/** Reachability check used before saving a pairing, so typos show up immediately. */
+/** Is something running Mindvault at this address? (Unsigned: only used to pick an address to try.) */
 export async function pingPeer(baseUrl: string): Promise<boolean> {
-  return (await fetchPeerInfo(baseUrl)) !== null
+  try {
+    const res = await fetch(`${baseUrl.replace(/\/+$/, '')}/api/ping`, { signal: AbortSignal.timeout(PING_TIMEOUT_MS) })
+    return ((await res.json()) as { app?: string }).app === 'mindvault'
+  } catch {
+    return false
+  }
 }
 
 /** The first address that answers, in order. */
@@ -151,9 +127,11 @@ async function runPeerSync(): Promise<PeerSyncReport> {
 }
 
 async function syncAt(baseUrl: string, token: string): Promise<PeerSyncReport> {
-  const report = await syncWithPeer(localSide, httpTransport(baseUrl, token))
+  const transport = signedTransport(baseUrl, token)
+  const report = await syncWithPeer(localSide, transport)
   // Refresh the computer's address list while connected, so the next fallback has current addresses.
-  const info = await fetchPeerInfo(baseUrl)
+  const res = await transport.call({ op: 'peerInfo' }).catch(() => null)
+  const info: PeerInfo | null = res?.ok && Array.isArray(res.urls) ? { urls: peerCandidates('', res.urls) } : null
   const alts = info ? peerCandidates(baseUrl, info.urls).filter((u) => u !== baseUrl) : getState().settings.peerAltUrls
   await saveSettings({ lastPeerSyncAt: Date.now(), peerAltUrls: alts })
   return report

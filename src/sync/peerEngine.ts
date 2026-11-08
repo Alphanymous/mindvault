@@ -25,6 +25,7 @@ export interface LocalSide {
 
 export type RpcMessage =
   | { op: 'manifest' }
+  | { op: 'peerInfo' }
   | { op: 'getItem'; id: string }
   | { op: 'putItem'; item: Item }
   | { op: 'getBlob'; id: string }

@@ -19,7 +19,13 @@ export function PairPage({ token }: { token: string }) {
         setFailed(true)
         return setMessage('This is not a valid pairing link.')
       }
-      const info = await fetchPeerInfo(location.origin)
+      let info
+      try {
+        info = await fetchPeerInfo(location.origin, token)
+      } catch (e) {
+        setFailed(true)
+        return setMessage(e instanceof Error ? e.message : 'Your computer did not accept this pairing link.')
+      }
       if (!info) {
         setFailed(true)
         return setMessage('This page was not opened from the Mindvault desktop app. Open the pairing link on your phone, or paste it in Settings.')

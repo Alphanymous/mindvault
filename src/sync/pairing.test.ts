@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildBookmarklet, buildPairLink, isValidItem, parseClip, parsePairLink, peerCandidates } from './pairing'
+import { buildBookmarklet, buildPairLink, isLocalNetworkHost, isValidItem, parseClip, parsePairLink, peerCandidates } from './pairing'
 
 const TOKEN = 'AbCdEfGh1234567_-xyzAB'
 
@@ -62,5 +62,29 @@ describe('peer address list', () => {
   it('caps the list so a peer cannot flood it', () => {
     const many = Array.from({ length: 50 }, (_, i) => `http://10.0.0.${i}:1`)
     expect(peerCandidates('', many)).toHaveLength(8)
+  })
+})
+
+describe('local network only', () => {
+  it('drops internet addresses a peer reports, but keeps the address you paired with', () => {
+    expect(peerCandidates('http://pc.local:1', ['http://evil.example:1', 'http://8.8.8.8:1', 'http://192.168.1.5:1', 'http://172.20.0.2:1', 'http://172.32.0.2:1'])).toEqual([
+      'http://pc.local:1',
+      'http://192.168.1.5:1',
+      'http://172.20.0.2:1',
+    ])
+    expect(peerCandidates('https://my-vps.example', [])).toEqual(['https://my-vps.example'])
+  })
+  it('recognises home network names and private ranges', () => {
+    for (const h of ['desktop-ab12.local', '10.1.2.3', '192.168.0.10', '169.254.3.4', '100.100.1.1', '[fd12:3456::1]', 'fe80::1']) expect(isLocalNetworkHost(h)).toBe(true)
+    for (const h of ['example.com', '8.8.8.8', '172.15.0.1', '192.169.0.1', 'local', '999.1.1.1', '2001:db8::1']) expect(isLocalNetworkHost(h)).toBe(false)
+  })
+})
+
+describe('item links from other devices', () => {
+  const base = { id: 'abcdef12', type: 'web', title: 't', content: '', folder: '', tags: [], status: 'organized', createdAt: 1, updatedAt: 1 }
+  it('accepts web addresses only', () => {
+    expect(isValidItem({ ...base, url: 'https://a.com/x' })).toBe(true)
+    expect(isValidItem({ ...base, url: 'javascript:alert(1)' })).toBe(false)
+    expect(isValidItem({ ...base, url: 'data:text/html,<script>1</script>' })).toBe(false)
   })
 })

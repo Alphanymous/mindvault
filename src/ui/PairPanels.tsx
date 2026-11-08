@@ -163,7 +163,13 @@ export function PeerPanel() {
       const blocked = mixedContentProblem(target.url)
       if (blocked) return toast(blocked, 'error')
       setBusy(true)
-      const info = await fetchPeerInfo(target.url)
+      let info
+      try {
+        info = await fetchPeerInfo(target.url, target.token)
+      } catch (e) {
+        setBusy(false)
+        return toast(e instanceof Error ? e.message : 'That computer did not accept the pairing link.', 'error')
+      }
       setBusy(false)
       if (!info) return toast('Could not reach that computer. Same Wi-Fi? Is phone pairing switched on there?', 'error')
       await savePairing(target.url, target.token, info)

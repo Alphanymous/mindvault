@@ -23,7 +23,8 @@ export function isValidItem(x: unknown): x is Item {
   if (!Array.isArray(i.tags) || i.tags.length > 100 || !i.tags.every((t) => isStr(t) && t.length <= 100)) return false
   if (i.status !== 'inbox' && i.status !== 'organized') return false
   if (!isNum(i.createdAt) || !isNum(i.updatedAt)) return false
-  if (i.url !== undefined && (!isStr(i.url) || i.url.length > 4000)) return false
+  // A page's own address is opened as a link, so only web addresses are accepted.
+  if (i.url !== undefined && (!isStr(i.url) || i.url.length > 4000 || !/^https?:\/\//i.test(i.url))) return false
   if (i.blobId !== undefined && !isValidId(i.blobId)) return false
   if (i.mime !== undefined && !isStr(i.mime)) return false
   if (i.fileName !== undefined && !isStr(i.fileName)) return false
@@ -127,16 +128,19 @@ const MAX_PEER_URLS = 8
 
 /**
  * Addresses to try for the paired computer: the saved one first, then the others it reported.
- * The list comes from another device, so only plain http(s) origins are kept, deduplicated and capped.
+ * The list comes from another device, so only plain http(s) origins on the local network are kept (never an
+ * internet address the phone would then send its data to), deduplicated and capped. The primary address is the
+ * one you chose when pairing and is kept as is.
  */
 export function peerCandidates(primary: string, others: unknown[]): string[] {
   const out: string[] = []
-  for (const raw of [primary, ...others]) {
+  for (const [i, raw] of [primary, ...others].entries()) {
     if (typeof raw !== 'string' || !raw) continue
     let origin: string
     try {
       const u = new URL(raw)
       if (u.protocol !== 'http:' && u.protocol !== 'https:') continue
+      if (i > 0 && !isLocalNetworkHost(u.hostname)) continue
       origin = u.origin
     } catch {
       continue
@@ -145,4 +149,18 @@ export function peerCandidates(primary: string, others: unknown[]): string[] {
     if (out.length >= MAX_PEER_URLS) break
   }
   return out
+}
+
+/** Names and addresses that only exist on a home or office network: <name>.local and private IP ranges. */
+export function isLocalNetworkHost(hostname: string): boolean {
+  const h = hostname.toLowerCase().replace(/^\[|\]$/g, '')
+  if (/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.local$/.test(h)) return true
+  const v4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(h)
+  if (v4) {
+    const [a, b] = [Number(v4[1]), Number(v4[2])]
+    if (v4.slice(1).some((x) => Number(x) > 255)) return false
+    return a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 169 && b === 254) || (a === 100 && b >= 64 && b <= 127)
+  }
+  // IPv6 unique-local (fc00::/7) and link-local (fe80::/10)
+  return /^(f[cd][0-9a-f]{2}|fe[89ab][0-9a-f]):/.test(h)
 }
