@@ -21,8 +21,7 @@ describe('fetchHtmlWithRoute failure messages', () => {
   it('in the Android app, names the failure instead of suggesting the Android app', async () => {
     asAndroid()
     fail(new TypeError('Failed to fetch'))
-    const err = await fetchHtmlWithRoute('https://a.test').catch((e: Error) => e)
-    expect(err.message).toBe('The download failed (Failed to fetch).')
+    await expect(fetchHtmlWithRoute('https://a.test')).rejects.toThrow(/^The download failed \(Failed to fetch\)\.$/)
   })
 
   it('in a browser, still explains the CORS block', async () => {
