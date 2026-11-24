@@ -63,8 +63,8 @@ export function Capture({ onClose, initial = '', dictate = false }: { onClose():
     if (window.mindvault?.captureScreenshot) {
       try {
         const result = await window.mindvault.captureScreenshot()
-        if (result && result.blob) {
-          const file = new File([result.blob], result.name || 'screenshot.png', { type: result.mime || 'image/png' })
+        if (result?.data?.byteLength) {
+          const file = new File([result.data], result.name || 'screenshot.png', { type: result.mime || 'image/png' })
           await handleImageCapture(file)
         }
       } catch (e) {
