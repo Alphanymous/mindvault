@@ -1,6 +1,12 @@
-/** Reads the text out of an image, fully offline: the engine and English data ship inside the app (public/ocr). */
+import { layoutOcr, type OcrWord } from '../core/ocrLayout'
+
+/**
+ * Reads the text out of an image as Markdown, fully offline: the engine and English data ship inside the app
+ * (public/ocr). Tesseract's own text output reads straight across the page and mixes columns together, so we
+ * take its word positions and rebuild columns, paragraphs, headings and lists (core/ocrLayout).
+ */
 export async function recognizeImage(image: Blob): Promise<string> {
-  const { createWorker } = await import('tesseract.js')
+  const { createWorker, PSM } = await import('tesseract.js')
   const base = new URL('ocr/', document.baseURI).href
   const worker = await createWorker('eng', 1, {
     workerPath: `${base}worker.min.js`,
@@ -13,8 +19,11 @@ export async function recognizeImage(image: Blob): Promise<string> {
     logger: () => {},
   })
   try {
-    const { data } = await worker.recognize(image)
-    return data.text.trim()
+    // Sparse mode finds every piece of text (sidebars, labels) without guessing a layout; we build the layout.
+    await worker.setParameters({ tessedit_pageseg_mode: PSM.SPARSE_TEXT })
+    const { data } = await worker.recognize(image, {}, { text: true, blocks: true })
+    const words: OcrWord[] = (data.blocks ?? []).flatMap((b) => b.paragraphs.flatMap((p) => p.lines.flatMap((l) => l.words)))
+    return words.length ? layoutOcr(words) : data.text.trim()
   } finally {
     await worker.terminate()
   }
