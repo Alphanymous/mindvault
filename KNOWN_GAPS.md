@@ -63,3 +63,9 @@
 - Tested on real Tesseract output for two screenshots (an article with a sidebar, and a single-column document with a numbered list), and end to end in the app in Chromium.
 - **Not tested**: phone photos of paper (tilted or curved pages, uneven light), tables, and multi-column newspaper layouts with a headline across all columns. Tables come out as lines of text, not Markdown tables. Misread words (for example `wil` for `will`) are an OCR accuracy limit, not a layout one.
 
+
+## v0.3.19 (graph cloud)
+
+- **Verified** (headless Chromium via `scripts/graph-shots.mjs`, dev server, seeded vaults of 50 and 2000 notes): Cloud and Atlas views at 1400x900 and 390x844 in dark and light themes, with 0 label overlaps, 0 labels under a panel and 0 labels off the canvas in every combination; the Cloud / Atlas switch, Atlas remembered after a reload, `#/graph?focus=<id>` opening Cloud without changing the stored choice, and Esc in Atlas going back to the ring. Unit tests cover layout, labels, Atlas scene and selection hand-off.
+- **Settle time, measured**: 50 notes settle in 150-300 ms. 2000 notes (2009 nodes with folders/tags) settle in about 3.7-4.3 s at 390x844 and about 6.8-6.9 s at 1400x900, so the < 3 s goal at phone size is **not met on this machine**. Chromium here renders canvas in software; JS per frame was about 10 ms (layout slice plus drawing) over about 126 frames at 30 fps. Layout stays on the main thread (not moved to a worker). **Verify on a real phone**, where drawing is hardware-accelerated and frames are cheaper.
+- **Not verified**: a real phone (touch pinch/pan feel, battery, frame rate at 2000 notes) and the Windows app. Vaults above ~3500 notes were not measured.

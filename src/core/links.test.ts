@@ -68,6 +68,13 @@ describe('buildGraph', () => {
     expect(g.nodes.some((x) => x.kind === 'folder' && x.label === 'F')).toBe(true)
   })
 
+  it('carries each item creation time on its node, and none on hubs', () => {
+    const g = buildGraph([a, b, c])
+    expect(g.nodes.find((x) => x.id === a.id)!.createdAt).toBe(a.createdAt)
+    expect(g.nodes.find((x) => x.id === c.id)!.createdAt).toBe(c.createdAt)
+    expect(g.nodes.filter((x) => x.kind !== 'item').every((x) => x.createdAt === undefined)).toBe(true)
+  })
+
   it('filter keeps matches and neighbours', () => {
     const g = buildGraph([a, b, c], { showTags: false, showFolders: false, showGhosts: false, hideOrphans: false, filter: 'A' })
     expect(g.nodes.map((x) => x.label).sort()).toEqual(['A', 'B'])

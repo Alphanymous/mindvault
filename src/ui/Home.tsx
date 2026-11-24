@@ -110,7 +110,7 @@ export function Home({ onSearch, onCapture }: { onSearch(): void; onCapture(): v
 
         <section className="panel galaxy-panel">
           <GraphCanvas data={galaxy} selectedId={null} onSelect={() => {}} onOpen={openNode} compact />
-          <a className="galaxy-cta" href={href({ name: 'graph' })}><Icon name="graph" size={15} /> Open the galaxy</a>
+          <a className="galaxy-cta" href={href({ name: 'graph' })}><Icon name="graph" size={15} /> Open the graph</a>
         </section>
 
         <Panel title="Prompts" icon="prompt" more={href({ name: 'prompts' })}>
