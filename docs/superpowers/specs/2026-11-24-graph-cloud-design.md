@@ -1,6 +1,6 @@
 # Graph: from spinning galaxy to EleSync-style brain cloud
 
-Date: 2026-11-24 · Status: draft for Santo's approval
+Date: 2026-11-24 · Status: reviewed, awaiting Santo's approval
 
 ## Intent
 
@@ -65,6 +65,8 @@ perfect", including its Atlas view, which switches the whole scene to a differen
 
 - Two views: **Cloud** (default) and **Atlas**. A clear Cloud / Atlas switch on the graph page changes the
   whole scene, as in EleSync; the choice is remembered on the device (localStorage).
+- "Open in graph" from a note (`#/graph?focus=<id>`) always opens Cloud centred on that note, whatever view
+  was last used, because Cloud shows the note among its connections.
 - The existing region list stays. In Cloud, picking a region flies to its patch and stays in Cloud; in Atlas,
   it focuses that region's orb. The list's open/closed state is separate from the view.
 
@@ -137,7 +139,7 @@ canvas between "Cloud" and "Atlas"; picking a region in the list focuses that or
 - Region colour comes from the folder name, so colours never shift when folders are added (touches the
   Clusters page too).
 - Regions are held together as lobes even without links (a small addition to EleSync's layout).
-- Cloud is the default view; Atlas is a switch, remembered per device.
+- Cloud is the default view; Atlas is a switch, remembered per device; "Open in graph" always opens Cloud.
 - Region positions are stable; individual note positions may vary slightly between visits.
 - Tags stay hidden by default in the full graph (as today); when shown they're labelled hubs like EleSync's.
 - The galaxy is removed, not kept as an option.
