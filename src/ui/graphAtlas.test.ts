@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { GraphData, GraphNode } from '../core/types'
-import { buildAtlasOrbs, fanOut } from './graphAtlas'
+import { buildAtlasOrbs, createAtlasScene, fanOut } from './graphAtlas'
 
 const note = (id: string, folder: string, createdAt: number): GraphNode => ({ id, label: id, kind: 'item', itemType: 'note', degree: 0, folder, createdAt })
 const data = (nodes: GraphNode[]): GraphData => ({ nodes, edges: [] })
@@ -71,5 +71,34 @@ describe('fanOut', () => {
     const fan = fanOut(orb, nodesOf(list))
     for (const f of fan) expect(Math.hypot(f.x - orb.x, f.y - orb.y)).toBeGreaterThan(orb.radius)
     for (let i = 0; i < fan.length; i++) for (let j = i + 1; j < fan.length; j++) expect(Math.hypot(fan[i].x - fan[j].x, fan[i].y - fan[j].y)).toBeGreaterThan(4)
+  })
+})
+
+describe('createAtlasScene (reduced motion: jumps, no animation)', () => {
+  const vault = () => data(['a', 'b', 'c'].flatMap((r, i) => many(r, 12 - i * 3)))
+
+  it('picks orbs on the ring and fanned notes after focusing, and goes back', () => {
+    const scene = createAtlasScene(vault(), { reducedMotion: true, compact: false })
+    scene.resize(1000, 800, 1)
+    const orb = scene.positions().find((p) => p.id === 'orb:b')!
+    expect(scene.pick(orb.x, orb.y)).toEqual({ kind: 'orb', region: 'b' })
+    expect(scene.pick(2, 2)).toBeNull()
+    scene.focus('b')
+    expect(scene.focused()).toBe('b')
+    const fanned = scene.positions().filter((p) => !p.id.startsWith('orb:'))
+    expect(fanned).toHaveLength(9)
+    expect(scene.pick(fanned[0].x, fanned[0].y)).toEqual({ kind: 'note', id: 'b-8' })
+    scene.focus('')
+    expect(scene.focused()).toBeNull()
+    expect(scene.positions().some((p) => !p.id.startsWith('orb:'))).toBe(false)
+  })
+
+  it('focuses the orb of a selected note that is not in view, and keeps the focus when it is', () => {
+    const scene = createAtlasScene(vault(), { reducedMotion: true, compact: false })
+    scene.resize(1000, 800, 1)
+    scene.setSelected('c-2')
+    expect(scene.focused()).toBe('c')
+    scene.setSelected('c-3')
+    expect(scene.focused()).toBe('c')
   })
 })
