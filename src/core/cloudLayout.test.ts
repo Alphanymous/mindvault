@@ -1,12 +1,18 @@
 import { describe, expect, it } from 'vitest'
 import { createCloudLayout, regionAnchor, type CloudLayout, type CloudNode } from './cloudLayout'
 import { regionOf } from './clusters'
+import { hash01 } from './hash'
 import type { GraphData, GraphEdge, GraphNode } from './types'
 
 const FOLDERS = ['Research', 'Projects', 'Reading', 'Journal/2026', 'Recipes', 'Work/Clients', 'Ideas']
 
-/** n notes spread round-robin over the given folders ('' = unfiled), plus `links` pseudo-random [[links]]. */
-function graph(n: number, folders: string[], links: number, seed = 1): GraphData {
+const F5 = ['Research', 'Projects', 'Reading', 'Recipes', '']
+
+/**
+ * n notes spread round-robin over the given folders ('' = unfiled), plus `links` pseudo-random [[links]];
+ * a `local` share of them stays inside the source note's folder, as in a real vault.
+ */
+function graph(n: number, folders: string[], links: number, seed = 1, local = 0): GraphData {
   const nodes: GraphNode[] = Array.from({ length: n }, (_, i) => ({
     id: `n${i}`, label: `Note ${i}`, kind: 'item', itemType: 'note', degree: 0, folder: folders[i % folders.length],
   }))
@@ -14,10 +20,52 @@ function graph(n: number, folders: string[], links: number, seed = 1): GraphData
   const rand = () => (s = (Math.imul(s, 1664525) + 1013904223) >>> 0) / 4294967296
   const edges: GraphEdge[] = []
   while (edges.length < links) {
-    const a = Math.floor(rand() * n), b = Math.floor(rand() * n)
-    if (a !== b) edges.push({ source: `n${a}`, target: `n${b}`, kind: 'link' })
+    const a = Math.floor(rand() * n)
+    let b = Math.floor(rand() * n)
+    if (rand() < local) b = b - (b % folders.length) + (a % folders.length)
+    if (b < n && a !== b) edges.push({ source: `n${a}`, target: `n${b}`, kind: 'link' })
   }
   return { nodes, edges }
+}
+
+/** Unlinked notes plus `tags` tag hubs, each on `per` notes picked across all regions. */
+function tagged(n: number, folders: string[], tags: number, per: number): GraphData {
+  const g = graph(n, folders, 0)
+  for (let t = 0; t < tags; t++) {
+    g.nodes.push({ id: `tag:t${t}`, label: `#t${t}`, kind: 'tag', degree: 0 })
+    for (let k = 0; k < per; k++) g.edges.push({ source: `n${Math.floor(hash01(`e${t}_${k}`, 5) * n)}`, target: `tag:t${t}`, kind: 'tag' })
+  }
+  return g
+}
+
+/** Throw every node somewhere in a disc, so regions start fully mixed. */
+function scramble(l: CloudLayout): CloudLayout {
+  for (const n of l.nodes) {
+    const a = hash01(n.id, 77) * Math.PI * 2, r = 300 * Math.sqrt(hash01(n.id, 78))
+    n.x = Math.cos(a) * r; n.y = Math.sin(a) * r
+  }
+  return l
+}
+
+/** Mean distance to a node's own region centre over mean distance to the other region centres (lower = tighter lobes). */
+function lobeRatio(l: CloudLayout): number {
+  const centres = new Map<string, { x: number; y: number; k: number }>()
+  const inRegion = l.nodes.filter((n) => n.region)
+  for (const n of inRegion) {
+    const c = centres.get(n.region!) ?? { x: 0, y: 0, k: 0 }
+    c.x += n.x; c.y += n.y; c.k++
+    centres.set(n.region!, c)
+  }
+  for (const c of centres.values()) { c.x /= c.k; c.y /= c.k }
+  let own = 0, other = 0, otherCount = 0
+  for (const n of inRegion) {
+    for (const [name, c] of centres) {
+      const d = Math.hypot(n.x - c.x, n.y - c.y)
+      if (name === n.region) own += d
+      else { other += d; otherCount++ }
+    }
+  }
+  return own / inRegion.length / (other / otherCount)
 }
 
 function settle(l: CloudLayout, max = 2000): CloudLayout {
@@ -34,15 +82,25 @@ function extent(nodes: CloudNode[]): { w: number; h: number } {
   return { w: span(nodes.map((n) => n.x)), h: span(nodes.map((n) => n.y)) }
 }
 
+function expectRound(l: CloudLayout) {
+  const { w, h } = extent(l.nodes)
+  expect(w / h).toBeGreaterThan(0.75)
+  expect(w / h).toBeLessThan(1.33)
+}
+
 const finite = (l: CloudLayout) => l.nodes.every((n) => Number.isFinite(n.x) && Number.isFinite(n.y) && Number.isFinite(n.vx) && Number.isFinite(n.vy))
 
 describe('cloud layout', () => {
   it('settles into a round cloud', () => {
     const l = settle(createCloudLayout(graph(200, FOLDERS.slice(0, 5), 150)))
     expect(l.settled).toBe(true)
-    const { w, h } = extent(l.nodes)
-    expect(w / h).toBeGreaterThan(0.75)
-    expect(w / h).toBeLessThan(1.33)
+    expectRound(l)
+  })
+
+  it('stays round with only three regions, whose anchors may line up', () => {
+    for (const names of [['Work', 'Travel', 'Music'], ['Reading', 'Ideas', 'Archive']]) {
+      expectRound(settle(createCloudLayout(graph(150, names, 100, 7, 0.7))))
+    }
   })
 
   it('never produces NaN or infinite positions, even for 0, 1 and 2 nodes', () => {
@@ -70,28 +128,21 @@ describe('cloud layout', () => {
   })
 
   it('keeps each region together as a lobe without any links', () => {
-    const l = settle(createCloudLayout(graph(120, ['Research', 'Projects', 'Reading', 'Recipes', ''], 0)))
-    const centres = new Map<string, { x: number; y: number; k: number }>()
-    for (const n of l.nodes) {
-      const c = centres.get(n.region!) ?? { x: 0, y: 0, k: 0 }
-      c.x += n.x; c.y += n.y; c.k++
-      centres.set(n.region!, c)
-    }
-    for (const c of centres.values()) { c.x /= c.k; c.y /= c.k }
-    expect(centres.size).toBe(5)
-    let own = 0, other = 0, otherCount = 0
-    for (const n of l.nodes) {
-      for (const [name, c] of centres) {
-        const d = Math.hypot(n.x - c.x, n.y - c.y)
-        if (name === n.region) own += d
-        else { other += d; otherCount++ }
-      }
-    }
-    expect(own / l.nodes.length).toBeLessThan((other / otherCount) / 2)
-    // Lobes, not a stretched cloud.
-    const { w, h } = extent(l.nodes)
-    expect(w / h).toBeGreaterThan(0.75)
-    expect(w / h).toBeLessThan(1.33)
+    const g = graph(120, F5, 0)
+    const seeded = settle(createCloudLayout(g))
+    expect(new Set(seeded.nodes.map((n) => n.region)).size).toBe(5)
+    expect(lobeRatio(seeded)).toBeLessThan(0.5)
+    expectRound(seeded)
+    // Even from a fully mixed start the regions sort themselves back into lobes.
+    const mixed = settle(scramble(createCloudLayout(g)))
+    expect(lobeRatio(mixed)).toBeLessThan(0.5)
+    expectRound(mixed)
+  })
+
+  it('keeps regions as lobes when tags connect notes across regions', () => {
+    const l = settle(createCloudLayout(tagged(120, F5, 5, 20)))
+    expect(lobeRatio(l)).toBeLessThan(0.5)
+    expectRound(l)
   })
 
   it('keeps existing positions when a node is added (warm start)', () => {
@@ -116,6 +167,20 @@ describe('cloud layout', () => {
       return Math.hypot(n.x - old.x, n.y - old.y)
     }).sort((a, b) => a - b)
     expect(moved[Math.floor(moved.length / 2)]).toBeLessThan(extent(prev.nodes).w * 0.03)
+  })
+
+  it('starts cold when prev has none of the nodes (e.g. built while the vault was loading)', () => {
+    const g = graph(200, FOLDERS.slice(0, 5), 150)
+    const cold = settle(createCloudLayout(g))
+    const other = { nodes: graph(20, ['Research'], 0).nodes.map((n) => ({ ...n, id: `old-${n.id}` })), edges: [] }
+    for (const prev of [createCloudLayout({ nodes: [], edges: [] }), settle(createCloudLayout(other))]) {
+      const l = settle(createCloudLayout(g, prev))
+      expectRound(l)
+      l.nodes.forEach((n, i) => {
+        expect(Math.abs(n.x - cold.nodes[i].x)).toBeLessThan(1e-6)
+        expect(Math.abs(n.y - cold.nodes[i].y)).toBeLessThan(1e-6)
+      })
+    }
   })
 
   it('restarts a note in its new region when it moves folder (warm start)', () => {

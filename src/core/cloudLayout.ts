@@ -1,8 +1,9 @@
 /**
  * Force layout for the 2D graph cloud, ported from EleSync's dashboard-graph-layout.js. Pure computation, no
  * DOM. Repulsion uses a Barnes-Hut quadtree (O(n log n)) with a 1/distance falloff, springs run along edges,
- * a soft gravity keeps the cloud round. Beyond EleSync, each region (top-level folder) is seeded in its own
- * patch around a name-fixed anchor and feels a weak pull toward it, so it stays one lobe even without links.
+ * a soft gravity keeps the cloud together. Beyond EleSync, each region (top-level folder) is seeded in its own
+ * patch around a name-fixed anchor, held there by a weak anchor pull and together by a pull toward its live
+ * centroid, so it stays one lobe even when tags cross regions; a shape force keeps the lobed cloud round.
  */
 import { regionOf } from './clusters'
 import { hash01 } from './hash'
@@ -26,8 +27,12 @@ const ALPHA_MIN = 0.002
 const MAX_SPEED = 40
 const MAX_DEPTH = 40
 const GOLDEN_ANGLE = 2.39996
-/** EleSync's defaults, plus the strength of the pull toward a region's anchor. */
-const PARAMS = { center: 0.4, repel: 1.6, link: 1, distance: 40, anchor: 0.012 }
+/**
+ * EleSync's defaults, plus three region forces: `anchor` pulls a region toward its name-fixed anchor (where it
+ * sits), `cohesion` toward its live centroid (holds it together as one lobe), and `round` squeezes the cloud
+ * along whichever axis it is stretched, since tight lobes placed by hashed anchors can otherwise line up.
+ */
+const PARAMS = { center: 0.4, repel: 1.6, link: 1, distance: 40, anchor: 0.012, cohesion: 0.1, round: 0.2 }
 /** Ring scale of the anchor spiral (EleSync seed(): 38 * sqrt(i + 0.5) * sqrt(groups)). */
 const ANCHOR_RING = 38
 /** A warm start only nudges the old cloud, so existing nodes stay where the reader last saw them. */
@@ -102,6 +107,11 @@ export function createCloudLayout(data: GraphData, prev?: CloudLayout): CloudLay
     placed[fresh] = 2
   }
   const anchorOf = nodes.map((n) => (n.region ? anchors.get(n.region)! : null))
+  /* Each node's region as a small integer, so a tick can find every region's live centroid without allocating. */
+  const regionNames = [...regionSize.keys()]
+  const regionId = Int32Array.from(nodes, (n) => (n.region ? regionNames.indexOf(n.region) : -1))
+  const members = Float64Array.from(regionNames, (r) => regionSize.get(r)!)
+  const centreX = new Float64Array(regionNames.length), centreY = new Float64Array(regionNames.length)
 
   const bias = edges.map((e) => degree[e.a] / (degree[e.a] + degree[e.b]))
   const pull = edges.map((e) => 1 / Math.min(degree[e.a], degree[e.b]))
@@ -114,7 +124,10 @@ export function createCloudLayout(data: GraphData, prev?: CloudLayout): CloudLay
   const leaf = new Int32Array(capacity), kids = new Int32Array(capacity * 4)
   const stack = new Int32Array(512)
   let used = 0
-  let alpha = count === 0 ? 0 : prev ? WARM_ALPHA : 1
+  // A warm start runs only as hot as its share of new or moved nodes needs: one new note barely stirs the
+  // cloud, while a layout whose prev had none of these nodes (say, the vault was still loading) starts cold.
+  const fresh = count - kept.filter(Boolean).length
+  let alpha = count === 0 ? 0 : Math.max(WARM_ALPHA, fresh / count)
   const decay = count > 5000 ? 0.95 : 0.9772
 
   function newCell(x: number, y: number, h: number): number {
@@ -195,12 +208,26 @@ export function createCloudLayout(data: GraphData, prev?: CloudLayout): CloudLay
       b.vx -= dx * f * bias[k]; b.vy -= dy * f * bias[k]
       a.vx += dx * f * (1 - bias[k]); a.vy += dy * f * (1 - bias[k])
     }
+    centreX.fill(0); centreY.fill(0)
+    let mx = 0, my = 0
     for (let i = 0; i < count; i++) {
-      const n = nodes[i], gravity = PARAMS.center * (degree[i] ? 0.02 : 0.06) * alpha, anchor = anchorOf[i]
-      n.vx -= n.x * gravity; n.vy -= n.y * gravity
+      const n = nodes[i], r = regionId[i]
+      mx += n.x / count; my += n.y / count
+      if (r >= 0) { centreX[r] += n.x / members[r]; centreY[r] += n.y / members[r] }
+    }
+    // Shape: the cloud's covariance normalised to trace 1, less a round cloud's. Pulling along that excess
+    // squeezes the long axis and widens the short one; a round cloud feels nothing.
+    let sxx = 0, syy = 0, sxy = 0
+    for (const n of nodes) { sxx += (n.x - mx) ** 2; syy += (n.y - my) ** 2; sxy += (n.x - mx) * (n.y - my) }
+    const k = (PARAMS.round * alpha) / (sxx + syy || 1), squeeze = (k * (sxx - syy)) / 2, shear = k * sxy
+    for (let i = 0; i < count; i++) {
+      const n = nodes[i], gravity = PARAMS.center * (degree[i] ? 0.02 : 0.06) * alpha, anchor = anchorOf[i], r = regionId[i]
+      n.vx -= n.x * gravity + squeeze * (n.x - mx) + shear * (n.y - my)
+      n.vy -= n.y * gravity - squeeze * (n.y - my) + shear * (n.x - mx)
       if (anchor) {
-        n.vx += (anchor.x - n.x) * PARAMS.anchor * alpha
-        n.vy += (anchor.y - n.y) * PARAMS.anchor * alpha
+        // The anchor holds a region in its place; cohesion toward its live centroid keeps it one lobe.
+        n.vx += ((anchor.x - n.x) * PARAMS.anchor + (centreX[r] - n.x) * PARAMS.cohesion) * alpha
+        n.vy += ((anchor.y - n.y) * PARAMS.anchor + (centreY[r] - n.y) * PARAMS.cohesion) * alpha
       }
       n.vx *= 0.6; n.vy *= 0.6
       if (n.pinned) { n.vx = n.vy = 0; continue }
