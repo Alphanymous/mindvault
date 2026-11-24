@@ -23,7 +23,7 @@
 - **Meaning search was tested only with a fake embeddings endpoint**. The built-in topical search is not true semantic understanding: it knows word forms and the topic dictionary, nothing more.
 - PDF highlights store text rectangles per page: they stay aligned across window sizes, but highlighting across two pages at once is not supported, and scanned PDFs have no selectable text.
 
-- **Android APK built and inspected, not run on a device.** `gradlew assembleDebug` succeeds (JDK 21, platform 36), so the share-sheet plugin compiles, and the APK manifest contains the share intent filters, camera permission and cleartext traffic. Nothing has been run on a phone or emulator: share-sheet delivery, QR scanning with `BarcodeDetector` in the WebView, native fetch for clipping, LAN pairing and Drive sign-in are all untested. Pasting the pairing link works without the camera.
+- **Android APK: the v0.3.16 APK has been run on a phone** (see the v0.3.15–0.3.16 section for what was checked). Earlier notes: `gradlew assembleDebug` succeeds (JDK 21, platform 36), so the share-sheet plugin compiles, and the APK manifest contains the share intent filters, camera permission and cleartext traffic. Still untested on a device: share-sheet delivery, QR scanning with `BarcodeDetector` in the WebView, native fetch for clipping, setting up a new LAN pairing, and Drive sign-in. Pasting the pairing link works without the camera.
 - LAN pairing is plain http on your Wi-Fi (token-protected, not encrypted). The hosted https PWA cannot call it (browser mixed-content rule); use the phone browser pairing link or the APK.
 - The browser clipper is a bookmarklet, not an extension: strict-CSP sites block it, and it only targets the desktop app.
 
@@ -45,12 +45,13 @@
 - **Inbox removed**: captures are filed into their suggested folder at once. Items still in the old inbox (from v0.2 or an older synced device) are filed automatically when the app opens; old `#/inbox` links open the New view. Checked in the browser; there is no unit test for this because the store needs IndexedDB.
 - An older v0.2 device that syncs with v0.3 still shows its own Inbox for items it captures; v0.3 files them once they arrive.
 - Animations (aurora background, turning edge on the search box, button sheen) are CSS only and stop with the system "reduce motion" setting; their cost on low-end phones is not measured.
-- APK for v0.3 built, not run on a phone.
+- APK for v0.3 built; v0.3.16 run on a phone (below).
 
 ## v0.3.15–0.3.16 (Obsidian Glass redesign)
 
 - **Verified in headless Chromium against the dev server** (1280 px and 360 px, dark theme): toolbar formatting and undo/redo step by step, tagging a selection, wikilink autocomplete undo, long wikilinks wrapping on phones, code blocks scrolling with the header and copy button fixed, untitled and nested callouts, checked parent tasks not striking sub-tasks, Newsreader italic loading, mention quotes for slug links, phone palette footer.
 - Unit tests cover the formatting rules (`core/format`), sanitizer attributes (table alignment, `ol start`, image size, `lang`/`dir`, unsafe URLs still stripped) and callout decoration keeping the text unchanged.
 - **Light theme checked** (note, editor, palette, Clusters, Settings, Home, Library at 1280 px and 390 px) with a script that measures text contrast: accent-coloured small text (green link counts and tag stats, callout titles, inline code, the "Voice available" pill) is darkened in light mode to reach 4.5:1. Gradient headings and filled pills were not measured by the script; they were judged by screenshot.
-- **Not verified**: undo in Safari / iOS (the editor falls back to a plain update there if `execCommand` is unavailable, so Ctrl+Z may skip toolbar edits), Windows high-contrast focus rings, and the APK on a phone.
+- **v0.3.16 APK checked on an Android phone**: tagging a selected word gives `#word`, long `[[links]]` wrap without sideways scrolling, and an edit made on the phone syncs to the computer.
+- **Not verified**: undo of toolbar edits on Android (phone keyboards have no Ctrl+Z) and in Safari / iOS (the editor falls back to a plain update there if `execCommand` is unavailable, so Ctrl+Z may skip toolbar edits), and Windows high-contrast focus rings.
 - Task-list card styling needs `:has()` (Chromium 105+, Safari 15.4+); older WebViews show plain checkboxes.
