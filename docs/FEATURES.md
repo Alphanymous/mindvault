@@ -22,6 +22,13 @@ Edit mode has a formatting bar: link a note `[[ ]]`, heading, bold, italic, task
 - Read mode shows Obsidian-style callouts (`> [!tip] Title`; without a title the type is shown), task lists as cards, and code blocks with the language and a copy button.
 - Under a note, **Mentioned in** quotes the line of each note that links to it, including links written by slug or file name.
 
+## Graph
+- **Cloud** (default) draws every note as a star in one round cloud, with each region (top-level folder) holding together as its own patch. **Atlas** shows one glowing orb per region on a ring; click an orb to fly in and see its notes, click empty space (or press Esc) to go back to the ring.
+- The **Cloud / Atlas** switch sits at the top left of the graph page and is remembered on the device. **Open in graph** from a note always opens Cloud centred on that note, without changing the remembered choice.
+- The **Regions** list flies to a region in either view. Region colours come from the folder name, so they stay the same when folders are added, and match the Clusters page.
+- Notes no longer have a mini graph; use **Open in graph** instead.
+- Keys: F show everything, Tab next connection, Enter open, Esc let go (a selected note first, then back out of an Atlas region).
+
 ## Clusters & Tags
 The **Clusters** page (sidebar, or `>` in the palette) shows each region (top-level folder) with its size, how much of it is linked and its most linked note, plus tag usage, tags used only once, the two tags that appear together most, and the most linked items.
 
