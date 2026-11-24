@@ -19,6 +19,11 @@
   --glow-cta: 0 8px 24px -4px color-mix(in srgb, var(--blue) 45%, transparent);
 }
 [data-theme='light'] { --well: hsl(216 40% 96%); --hair: hsl(220 40% 20% / 0.07); }
+/* Light theme: the accent greens, reds and blues are too pale for small text on white (under 4.5:1), so text uses a darker ink. */
+[data-theme='light'] :is(.link-strip .out, .stat b.out, .ok-text, .tag-stat small.ok-text, .rank.r2) { color: color-mix(in srgb, var(--green) 70%, black); }
+[data-theme='light'] .status.ok { color: color-mix(in srgb, var(--ok) 55%, black); }
+[data-theme='light'] .callout-title { color: color-mix(in srgb, var(--co) 72%, black); }
+[data-theme='light'] .prose :not(pre) > code { color: color-mix(in srgb, var(--blue) 82%, black); }
 
 body { font: 15px/23px var(--font); font-feature-settings: 'cv11', 'ss01'; }
 .mono, kbd, code, .prose pre { font-family: var(--mono); }
@@ -170,6 +175,9 @@ input[type='range']::-webkit-slider-thumb {
 .code-copy.failed::before { content: 'blocked'; }
 /* GFM task lists */
 .prose li:has(> input[type='checkbox']) { list-style: none; margin-left: -1.4em; padding: 10px 14px; margin-bottom: 8px; border-radius: var(--r-md); background: color-mix(in srgb, var(--surface) 75%, transparent); border: 1px solid var(--border); font-family: var(--font); font-size: 15px; line-height: 23px; }
+/* GFM table alignment (|:-:|--:|): styles.css sets text-align: left on every cell, which beat the align attribute */
+.prose :is(th, td)[align='center'] { text-align: center; }
+.prose :is(th, td)[align='right'] { text-align: right; }
 .prose li > input[type='checkbox'] { margin-right: 10px; cursor: default; }
 .prose li:has(> input[type='checkbox']:checked) { color: var(--muted); text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--muted) 60%, transparent); }
 /* line-through can't be undone by children, but it does not reach inline-blocks: keeps sub-tasks readable */
