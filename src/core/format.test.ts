@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { applyFormat } from './format'
+import { applyFormat, diffEdit } from './format'
 
 describe('applyFormat', () => {
   it('wraps the selection in bold, italic, code and wikilink marks and keeps it selected', () => {
@@ -27,5 +27,38 @@ describe('applyFormat', () => {
   it('inserts a # for a tag, with a space before it when needed', () => {
     expect(applyFormat('word', 4, 4, 'tag')).toEqual({ value: 'word #', start: 6, end: 6 })
     expect(applyFormat('', 0, 0, 'tag')).toEqual({ value: '#', start: 1, end: 1 })
+  })
+
+  it('turns a selection into a tag instead of deleting it', () => {
+    expect(applyFormat('I like heuristics a lot', 7, 17, 'tag')).toEqual({ value: 'I like #heuristics a lot', start: 18, end: 18 })
+    expect(applyFormat('try deep work today', 4, 13, 'tag')).toEqual({ value: 'try #deep-work today', start: 14, end: 14 })
+  })
+
+  it('keeps whitespace around a tagged selection and does not double the #', () => {
+    expect(applyFormat('a idea b', 2, 7, 'tag')).toEqual({ value: 'a #idea b', start: 7, end: 7 })
+    expect(applyFormat('see #idea', 4, 9, 'tag')).toEqual({ value: 'see #idea', start: 9, end: 9 })
+    expect(applyFormat('xidea', 1, 5, 'tag')).toEqual({ value: 'x #idea', start: 7, end: 7 })
+  })
+
+  it('never loses selected text that cannot become a tag', () => {
+    expect(applyFormat('a 2024 b', 2, 6, 'tag').value).toBe('a #2024 b')
+    expect(applyFormat('a !!! b', 2, 5, 'tag').value).toBe('a #!!! b')
+  })
+})
+
+describe('diffEdit', () => {
+  it('finds the smallest replaced range between two texts', () => {
+    expect(diffEdit('say hi now', 'say **hi** now')).toEqual({ from: 4, to: 6, text: '**hi**' })
+    expect(diffEdit('one\n## two', 'one\ntwo')).toEqual({ from: 4, to: 7, text: '' })
+    expect(diffEdit('abc', 'abc')).toBeNull()
+    expect(diffEdit('', 'x')).toEqual({ from: 0, to: 0, text: 'x' })
+  })
+
+  it('produces a range that rebuilds the new text', () => {
+    const cases: [string, string][] = [['aaa', 'aaaa'], ['I like heuristics', 'I like #heuristics'], ['xx', ''], ['ab', 'ba']]
+    for (const [a, b] of cases) {
+      const d = diffEdit(a, b)!
+      expect(a.slice(0, d.from) + d.text + a.slice(d.to)).toBe(b)
+    }
   })
 })

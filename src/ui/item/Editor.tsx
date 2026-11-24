@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from 'react'
-import { applyFormat, type FormatKind } from '../../core/format'
+import { applyFormat, diffEdit, type Edit, type FormatKind } from '../../core/format'
 import { useAppState } from '../../data/store'
 import { Icon } from '../Icon'
 import { TYPE_META } from '../util'
@@ -13,6 +13,30 @@ const TOOLS: { kind: FormatKind; icon: string; label: string }[] = [
   { kind: 'tag', icon: 'hash', label: 'Tag' },
   { kind: 'code', icon: 'code', label: 'Code' },
 ]
+
+/**
+ * Apply an edit through the browser's editing commands so it lands in the textarea's undo history (Ctrl+Z works).
+ * Falls back to a plain state update where execCommand is missing or does something unexpected.
+ */
+function commitEdit(el: HTMLTextAreaElement, edit: Edit, onChange: (v: string) => void, after: () => void) {
+  const change = diffEdit(el.value, edit.value)
+  if (change) {
+    el.focus()
+    el.setSelectionRange(change.from, change.to)
+    let ok = false
+    try {
+      ok = document.execCommand(change.text ? 'insertText' : 'delete', false, change.text)
+    } catch {
+      ok = false
+    }
+    if (!ok || el.value !== edit.value) onChange(edit.value)
+  }
+  requestAnimationFrame(() => {
+    el.focus()
+    el.setSelectionRange(edit.start, edit.end)
+    after()
+  })
+}
 
 /** Markdown textarea with a formatting toolbar and [[wikilink]] autocomplete. */
 export function Editor({ value, onChange, selfId }: { value: string; onChange(v: string): void; selfId: string }) {
@@ -43,25 +67,14 @@ export function Editor({ value, onChange, selfId }: { value: string; onChange(v:
     const end = el.selectionStart
     const after = el.value.slice(end).startsWith(']]') ? '' : ']]'
     const next = el.value.slice(0, query.start) + title + after + el.value.slice(end)
-    onChange(next)
-    setQuery(null)
-    requestAnimationFrame(() => {
-      const pos = query.start + title.length + 2
-      el.focus()
-      el.setSelectionRange(pos, pos)
-    })
+    const pos = query.start + title.length + 2
+    commitEdit(el, { value: next, start: pos, end: pos }, onChange, () => setQuery(null))
   }
 
   const format = (kind: FormatKind) => {
     const el = ref.current
     if (!el) return
-    const edit = applyFormat(el.value, el.selectionStart, el.selectionEnd, kind)
-    onChange(edit.value)
-    requestAnimationFrame(() => {
-      el.focus()
-      el.setSelectionRange(edit.start, edit.end)
-      detect(el)
-    })
+    commitEdit(el, applyFormat(el.value, el.selectionStart, el.selectionEnd, kind), onChange, () => detect(el))
   }
 
   return (

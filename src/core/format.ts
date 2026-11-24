@@ -33,13 +33,39 @@ function toggleLinePrefix(value: string, start: number, end: number, prefix: str
   return { value: next, start: move(start), end: move(end) }
 }
 
+/** Insert a # at the cursor, or turn the selected words into a tag ("deep work" → "#deep-work") without dropping any text. */
+function tag(value: string, start: number, end: number): Edit {
+  const selected = value.slice(start, end)
+  const lead = /^\s*/.exec(selected)![0]
+  const trail = /\s*$/.exec(selected.slice(lead.length))![0]
+  const core = selected.slice(lead.length, selected.length - trail.length)
+  const from = start + lead.length
+  const to = end - trail.length
+  const glue = from > 0 && !/\s/.test(value[from - 1]) ? ' ' : ''
+  const slug = core.replace(/^#+/, '').trim().replace(/\s+/g, '-')
+  const body = /^[\p{L}\p{N}_/-]+$/u.test(slug) ? slug : core.replace(/^#+/, '')
+  const insert = `${glue}#${body}`
+  const pos = from + insert.length
+  return { value: value.slice(0, from) + insert + value.slice(to), start: pos, end: pos }
+}
+
+/** The smallest single replacement that turns `prev` into `next`, or null when they are equal. */
+export function diffEdit(prev: string, next: string): { from: number; to: number; text: string } | null {
+  if (prev === next) return null
+  let from = 0
+  while (from < prev.length && from < next.length && prev[from] === next[from]) from++
+  let prevEnd = prev.length
+  let nextEnd = next.length
+  while (prevEnd > from && nextEnd > from && prev[prevEnd - 1] === next[nextEnd - 1]) {
+    prevEnd--
+    nextEnd--
+  }
+  return { from, to: prevEnd, text: next.slice(from, nextEnd) }
+}
+
 export function applyFormat(value: string, start: number, end: number, kind: FormatKind): Edit {
   if (kind === 'heading' || kind === 'task') return toggleLinePrefix(value, start, end, LINE_PREFIX[kind])
-  if (kind === 'tag') {
-    const glue = start > 0 && !/\s/.test(value[start - 1]) ? ' ' : ''
-    const insert = `${glue}#`
-    return { value: value.slice(0, start) + insert + value.slice(end), start: start + insert.length, end: start + insert.length }
-  }
+  if (kind === 'tag') return tag(value, start, end)
   if (kind === 'code' && value.slice(start, end).includes('\n')) return wrap(value, start, end, '```\n', '\n```')
   const [open, close] = WRAP[kind]
   return wrap(value, start, end, open, close)
