@@ -38,6 +38,15 @@ function tagged(n: number, folders: string[], tags: number, per: number): GraphD
   return g
 }
 
+/** Add a folder hub per folder with an edge from each of its notes, as the graph page shows by default. */
+function withFolderHubs(g: GraphData): GraphData {
+  for (const folder of new Set(g.nodes.map((n) => n.folder).filter((f): f is string => !!f))) {
+    g.nodes.push({ id: `folder:${folder}`, label: folder, kind: 'folder', degree: 0 })
+    for (const n of g.nodes) if (n.kind === 'item' && n.folder === folder) g.edges.push({ source: n.id, target: `folder:${folder}`, kind: 'folder' })
+  }
+  return g
+}
+
 /** Throw every node somewhere in a disc, so regions start fully mixed. */
 function scramble(l: CloudLayout): CloudLayout {
   for (const n of l.nodes) {
@@ -137,6 +146,24 @@ describe('cloud layout', () => {
     const mixed = settle(scramble(createCloudLayout(g)))
     expect(lobeRatio(mixed)).toBeLessThan(0.5)
     expectRound(mixed)
+  })
+
+  it('packs the lobes into one filled cloud: no hollow middle, no lobe floating apart', () => {
+    for (const g of [graph(300, F5, 260, 3, 0.8), graph(120, F5, 0), withFolderHubs(graph(200, F5, 160, 5, 0.8))]) {
+      const l = settle(createCloudLayout(g))
+      const items = l.nodes.filter((n) => n.node.kind === 'item')
+      const mx = items.reduce((s, n) => s + n.x, 0) / items.length, my = items.reduce((s, n) => s + n.y, 0) / items.length
+      const r = items.map((n) => Math.hypot(n.x - mx, n.y - my)).sort((a, b) => a - b)
+      // A uniform disc has a quarter of its notes inside half its radius; a ring of separate lobes has few.
+      expect(r.filter((d) => d < r[Math.floor(r.length * 0.95)] / 2).length / r.length).toBeGreaterThan(0.15)
+      // Every lobe touches another: its closest foreign note is about as near as notes are to each other.
+      const nearest = (n: CloudNode, ok: (m: CloudNode) => boolean) => Math.min(...items.filter((m) => m !== n && ok(m)).map((m) => Math.hypot(m.x - n.x, m.y - n.y)))
+      const spacing = items.map((n) => nearest(n, () => true)).sort((a, b) => a - b)[Math.floor(items.length / 2)]
+      for (const region of new Set(items.map((n) => n.region))) {
+        const gap = Math.min(...items.filter((n) => n.region === region).map((n) => nearest(n, (m) => m.region !== region)))
+        expect(gap).toBeLessThan(spacing * 2)
+      }
+    }
   })
 
   it('keeps regions as lobes when tags connect notes across regions', () => {

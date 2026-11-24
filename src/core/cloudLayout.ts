@@ -1,9 +1,11 @@
 /**
  * Force layout for the 2D graph cloud, ported from EleSync's dashboard-graph-layout.js. Pure computation, no
  * DOM. Repulsion uses a Barnes-Hut quadtree (O(n log n)) with a 1/distance falloff, springs run along edges,
- * a soft gravity keeps the cloud together. Beyond EleSync, each region (top-level folder) is seeded in its own
- * patch around a name-fixed anchor, held there by a weak anchor pull and together by a pull toward its live
- * centroid, so it stays one lobe even when tags cross regions; a shape force keeps the lobed cloud round.
+ * a soft gravity keeps the cloud together. Beyond EleSync, each region (top-level folder) is a lobe: seeded in
+ * its own patch around a name-fixed anchor, moved as a block toward that anchor and toward the other lobes, kept
+ * from overlapping its neighbours, and held in one piece by pulling back only the notes that stray beyond its
+ * share of the cloud. Lobes are as dense as the cloud around them, so they press together into one round
+ * cloud instead of floating apart; a shape force keeps the whole round.
  */
 import { regionOf } from './clusters'
 import { hash01 } from './hash'
@@ -28,11 +30,13 @@ const MAX_SPEED = 40
 const MAX_DEPTH = 40
 const GOLDEN_ANGLE = 2.39996
 /**
- * EleSync's defaults, plus three region forces: `anchor` pulls a region toward its name-fixed anchor (where it
- * sits), `cohesion` toward its live centroid (holds it together as one lobe), and `round` squeezes the cloud
- * along whichever axis it is stretched, since tight lobes placed by hashed anchors can otherwise line up.
+ * EleSync's defaults, plus the region forces: `anchor` moves a lobe toward its name-fixed anchor (where it sits),
+ * `pack` toward the middle of the cloud (so lobes touch), `separate` pushes overlapping lobes apart, `cohesion`
+ * pulls back notes beyond `lobe` x the lobe's share of the cloud radius (one piece, no squeeze), `folderPull`
+ * weakens folder-hub springs (the region forces already hold a folder together; full springs squeeze a lobe
+ * into a dense star), and `round` squeezes the cloud along whichever axis it is stretched.
  */
-const PARAMS = { center: 0.4, repel: 1.6, link: 1, distance: 40, anchor: 0.012, cohesion: 0.1, round: 0.2 }
+const PARAMS = { center: 0.4, repel: 1.6, link: 1, distance: 40, anchor: 0.02, pack: 0.08, separate: 1, cohesion: 0.3, lobe: 0.8, folderPull: 0.1, round: 0.2 }
 /** Ring scale of the anchor spiral (EleSync seed(): 38 * sqrt(i + 0.5) * sqrt(groups)). */
 const ANCHOR_RING = 38
 /** A warm start only nudges the old cloud, so existing nodes stay where the reader last saw them. */
@@ -106,12 +110,13 @@ export function createCloudLayout(data: GraphData, prev?: CloudLayout): CloudLay
     n.x = nodes[near].x + Math.cos(angle) * radius; n.y = nodes[near].y + Math.sin(angle) * radius
     placed[fresh] = 2
   }
-  const anchorOf = nodes.map((n) => (n.region ? anchors.get(n.region)! : null))
   /* Each node's region as a small integer, so a tick can find every region's live centroid without allocating. */
   const regionNames = [...regionSize.keys()]
   const regionId = Int32Array.from(nodes, (n) => (n.region ? regionNames.indexOf(n.region) : -1))
   const members = Float64Array.from(regionNames, (r) => regionSize.get(r)!)
   const centreX = new Float64Array(regionNames.length), centreY = new Float64Array(regionNames.length)
+  const regionCount = regionNames.length, regionAnchors = regionNames.map((r) => anchors.get(r)!)
+  const lobeRadius = new Float64Array(regionCount), blockX = new Float64Array(regionCount), blockY = new Float64Array(regionCount)
 
   const bias = edges.map((e) => degree[e.a] / (degree[e.a] + degree[e.b]))
   const pull = edges.map((e) => 1 / Math.min(degree[e.a], degree[e.b]))
@@ -204,7 +209,7 @@ export function createCloudLayout(data: GraphData, prev?: CloudLayout): CloudLay
       const dx = b.x + b.vx - a.x - a.vx, dy = b.y + b.vy - a.y - a.vy
       const d = Math.hypot(dx, dy) || 1e-6
       const rest = (PARAMS.distance + spread[k]) * (e.kind === 'link' ? 0.8 : 1)
-      const f = (d - rest) / d * alpha * pull[k] * PARAMS.link
+      const f = (d - rest) / d * alpha * pull[k] * PARAMS.link * (e.kind === 'folder' ? PARAMS.folderPull : 1)
       b.vx -= dx * f * bias[k]; b.vy -= dy * f * bias[k]
       a.vx += dx * f * (1 - bias[k]); a.vy += dy * f * (1 - bias[k])
     }
@@ -220,14 +225,37 @@ export function createCloudLayout(data: GraphData, prev?: CloudLayout): CloudLay
     let sxx = 0, syy = 0, sxy = 0
     for (const n of nodes) { sxx += (n.x - mx) ** 2; syy += (n.y - my) ** 2; sxy += (n.x - mx) * (n.y - my) }
     const k = (PARAMS.round * alpha) / (sxx + syy || 1), squeeze = (k * (sxx - syy)) / 2, shear = k * sxy
+    // Radius of the whole cloud as a uniform disc; each region's lobe fills its share of that area.
+    const cloudRadius = Math.sqrt((2 * (sxx + syy)) / (count || 1))
+    // Lobes move as blocks: toward their anchor, toward the middle (so they pack), and apart where two overlap.
+    for (let r = 0; r < regionCount; r++) {
+      lobeRadius[r] = PARAMS.lobe * cloudRadius * Math.sqrt(members[r] / count)
+      const a = regionAnchors[r]
+      blockX[r] = (a.x - centreX[r]) * PARAMS.anchor + (mx - centreX[r]) * PARAMS.pack
+      blockY[r] = (a.y - centreY[r]) * PARAMS.anchor + (my - centreY[r]) * PARAMS.pack
+    }
+    for (let r = 0; r < regionCount; r++) for (let q = r + 1; q < regionCount; q++) {
+      const dx = centreX[q] - centreX[r], dy = centreY[q] - centreY[r], d = Math.hypot(dx, dy) || 1
+      const overlap = lobeRadius[r] + lobeRadius[q] - d
+      if (overlap <= 0) continue
+      const push = (overlap / d) * PARAMS.separate, share = members[q] / (members[r] + members[q])
+      blockX[r] -= dx * push * share; blockY[r] -= dy * push * share
+      blockX[q] += dx * push * (1 - share); blockY[q] += dy * push * (1 - share)
+    }
     for (let i = 0; i < count; i++) {
-      const n = nodes[i], gravity = PARAMS.center * (degree[i] ? 0.02 : 0.06) * alpha, anchor = anchorOf[i], r = regionId[i]
+      const n = nodes[i], gravity = PARAMS.center * (degree[i] ? 0.02 : 0.06) * alpha, r = regionId[i]
       n.vx -= n.x * gravity + squeeze * (n.x - mx) + shear * (n.y - my)
       n.vy -= n.y * gravity - squeeze * (n.y - my) + shear * (n.x - mx)
-      if (anchor) {
-        // The anchor holds a region in its place; cohesion toward its live centroid keeps it one lobe.
-        n.vx += ((anchor.x - n.x) * PARAMS.anchor + (centreX[r] - n.x) * PARAMS.cohesion) * alpha
-        n.vy += ((anchor.y - n.y) * PARAMS.anchor + (centreY[r] - n.y) * PARAMS.cohesion) * alpha
+      if (r >= 0) {
+        // Block forces move the lobe without squeezing it; cohesion pulls back only notes beyond its radius.
+        n.vx += blockX[r] * alpha
+        n.vy += blockY[r] * alpha
+        const dx = centreX[r] - n.x, dy = centreY[r] - n.y, d = Math.hypot(dx, dy) || 1
+        const excess = d - lobeRadius[r]
+        if (excess > 0) {
+          n.vx += (dx / d) * excess * PARAMS.cohesion * alpha
+          n.vy += (dy / d) * excess * PARAMS.cohesion * alpha
+        }
       }
       n.vx *= 0.6; n.vy *= 0.6
       if (n.pinned) { n.vx = n.vy = 0; continue }
