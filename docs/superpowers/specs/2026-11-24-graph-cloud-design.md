@@ -61,19 +61,36 @@ perfect", including its Atlas view, which switches the whole scene to a differen
 
 ## Design
 
+### Views and switching
+
+- Two views: **Cloud** (default) and **Atlas**. A clear Cloud / Atlas switch on the graph page changes the
+  whole scene, as in EleSync; the choice is remembered on the device (localStorage).
+- The existing region list stays. In Cloud, picking a region flies to its patch and stays in Cloud; in Atlas,
+  it focuses that region's orb. The list's open/closed state is separate from the view.
+
 ### Layout (`src/core/cloudLayout.ts`, pure, testable in Node)
 
 Port of `dashboard-graph-layout.js`: 2D positions, Barnes-Hut quadtree repulsion (θ² = 0.81), springs whose
 pull and rest length scale with node degree, soft centre gravity (stronger for unconnected nodes), velocity
 damping, cooling (`alpha`) until settled, `reheat()` on data change. Seeded per region on a golden-angle
-spiral (as EleSync's `seed()`), so each region starts in its own patch and the result is stable between
-openings. Deterministic randomness from node ids (Mindvault already has `hash01`).
+spiral (as EleSync's `seed()`). Deterministic randomness from node ids (Mindvault already has `hash01`).
+
+- **Regions always hold together as lobes.** Beyond EleSync, a weak pull toward each region's own anchor point
+  keeps its notes together even when Folders is off, notes are unfiled, or there are few `[[links]]`. Without
+  it, unconnected notes collapse into one mixed ball and "a region's patch" stops existing.
+- **Region anchors are fixed by region name** (deterministic angle on the spiral), so each region lands in
+  roughly the same place on every opening and after notes are added. Within one session, positions carry over
+  when data changes (warm start, as the galaxy does today). Individual notes may shift slightly between
+  visits; positions are not saved to storage.
 
 ### Look (`src/ui/GraphCanvas.tsx`, rewritten)
 
 - **Depth sway**: every node gets a depth from its region plus its own id; the cloud turns ±0.45 rad slowly;
   nearer nodes draw larger. Off with reduced motion.
-- **Colour**: region colour from `buildRegions` (Mindvault's palette, so it matches the Clusters page);
+- **Colour**: each region's colour is derived from its name (a hash into Mindvault's palette), not from its
+  place in an alphabetical list, so a new folder never recolours the others. Colours are computed from all
+  live notes, never from the filtered graph. `src/core/clusters.ts` changes accordingly and the Clusters page
+  and Atlas list use the same function, so colours match everywhere;
   links and spokes take the colour of the node they leave from; direct `[[links]]` drawn slightly brighter.
 - **Sizes**: most notes small dots, some medium, a few large (EleSync's 70/25/5 split), plus a bit by degree;
   folder and tag hubs larger. Item-kind shapes kept.
@@ -117,5 +134,10 @@ canvas between "Cloud" and "Atlas"; picking a region in the list focuses that or
 ## Calls I made (not discussed with Santo)
 
 - Regions stay folders; colours stay Mindvault's palette rather than EleSync's neon palette.
+- Region colour comes from the folder name, so colours never shift when folders are added (touches the
+  Clusters page too).
+- Regions are held together as lobes even without links (a small addition to EleSync's layout).
+- Cloud is the default view; Atlas is a switch, remembered per device.
+- Region positions are stable; individual note positions may vary slightly between visits.
 - Tags stay hidden by default in the full graph (as today); when shown they're labelled hubs like EleSync's.
 - The galaxy is removed, not kept as an option.
