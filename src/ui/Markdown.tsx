@@ -8,9 +8,11 @@ import { enhanceProse, handleCodeCopy } from './proseEnhance'
 import { go } from './router'
 
 const marked = new Marked({ gfm: true, breaks: true })
+/** Attributes that never hold a URL: task-list checkboxes, table alignment, list numbering, image size, text direction. */
+const PLAIN_ATTRS = ['type', 'align', 'start', 'width', 'height', 'lang', 'dir', 'colspan', 'rowspan']
 
 DOMPurify.addHook('afterSanitizeAttributes', (node) => {
-  // GFM task lists: the sanitizer drops `type`, which turns them into text boxes. Any input left is a read-only checkbox.
+  // Only GFM task lists should produce inputs; make any input a read-only checkbox so notes can't render text or password fields.
   if (node.tagName === 'INPUT') {
     node.setAttribute('type', 'checkbox')
     node.setAttribute('disabled', '')
@@ -45,7 +47,12 @@ function wikilinksToLinks(src: string, resolve: (t: string) => string | null): s
 export function renderMarkdown(src: string, resolve: (t: string) => string | null): string {
   const body = parseFrontmatter(src).body
   const html = marked.parse(wikilinksToLinks(body, resolve), { async: false }) as string
-  return DOMPurify.sanitize(html, { ADD_ATTR: ['target'], ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto|wikilink|tel):|#)/i })
+  return DOMPurify.sanitize(html, {
+    ADD_ATTR: ['target'],
+    // The strict regex below is checked against every attribute DOMPurify doesn't know is URL-free, so name the plain ones.
+    ADD_URI_SAFE_ATTR: PLAIN_ATTRS,
+    ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto|wikilink|tel):|#)/i,
+  })
 }
 
 export function Markdown({ source }: { source: string }) {
