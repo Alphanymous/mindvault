@@ -16,8 +16,15 @@ const NEIGHBOURHOOD_HOPS = 2
 
 const isTyping = (t: EventTarget | null) => t instanceof HTMLElement && !!t.closest('input, textarea, select, [contenteditable="true"]')
 
-// DEV only, until the Cloud / Atlas switch arrives: ?view=atlas on the page URL.
-const devView = import.meta.env.DEV && new URLSearchParams(window.location.search).get('view') === 'atlas' ? 'atlas' : 'cloud'
+type GraphViewMode = 'cloud' | 'atlas'
+const VIEW_KEY = 'mv.graph.view'
+const storedView = (): GraphViewMode => {
+  try {
+    return localStorage.getItem(VIEW_KEY) === 'atlas' ? 'atlas' : 'cloud'
+  } catch {
+    return 'cloud'
+  }
+}
 
 export function GraphView({ focus }: { focus?: string }) {
   const { items, links } = useAppState()
@@ -27,6 +34,8 @@ export function GraphView({ focus }: { focus?: string }) {
   const [types, setTypes] = useState<Set<ItemType>>(new Set(Object.keys(TYPE_META) as ItemType[]))
   const [panelOpen, setPanelOpen] = useState(false)
   const [atlasOpen, setAtlasOpen] = useState(() => window.innerWidth > 1100)
+  // "Open in graph" (focus) always starts in Cloud and leaves the remembered choice alone
+  const [view, setView] = useState<GraphViewMode>(() => (focus ? 'cloud' : storedView()))
   const [selected, setSelected] = useState<string | null>(focus ?? null)
   const [localOnly, setLocalOnly] = useState(false)
   const [spin, setSpin] = useState(true)
@@ -68,8 +77,8 @@ export function GraphView({ focus }: { focus?: string }) {
   }
 
   // keyboard: F fits everything, Tab steps through the selected star's connections, Enter opens, Esc lets go
-  const keyState = useRef({ selected, connections, node, open })
-  keyState.current = { selected, connections, node, open }
+  const keyState = useRef({ selected, connections, node, open, view })
+  keyState.current = { selected, connections, node, open, view }
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.ctrlKey || e.metaKey || e.altKey || isTyping(e.target) || document.querySelector('.overlay')) return
@@ -80,6 +89,8 @@ export function GraphView({ focus }: { focus?: string }) {
       } else if (e.key === 'Escape' && s.selected) {
         setSelected(null)
         setLocalOnly(false)
+      } else if (e.key === 'Escape' && s.view === 'atlas') {
+        handle.current?.focusRegion('') // back to the ring
       } else if (e.key === 'Enter' && s.node) {
         e.preventDefault()
         void s.open(s.node)
@@ -103,6 +114,14 @@ export function GraphView({ focus }: { focus?: string }) {
   const stepRef = useRef<{ anchor: string; ids: string[] } | null>(null)
   useEffect(() => setResultIdx(0), [q])
 
+  const chooseView = (v: GraphViewMode) => {
+    setView(v)
+    try {
+      localStorage.setItem(VIEW_KEY, v)
+    } catch {
+      /* private mode: the choice just isn't remembered */
+    }
+  }
   const toggleType = (t: ItemType) => {
     const next = new Set(types)
     if (next.has(t)) next.delete(t)
@@ -126,10 +145,17 @@ export function GraphView({ focus }: { focus?: string }) {
           <p>Link notes with [[double brackets]] and they appear here as a living map.</p>
         </div>
       ) : (
-        <GraphCanvas ref={handle} data={data} selectedId={selected} onSelect={setSelected} onOpen={open} highlight={highlight} view={devView} />
+        <GraphCanvas ref={handle} data={data} selectedId={selected} onSelect={setSelected} onOpen={open} highlight={highlight} view={view} />
       )}
 
       <div className="graph-search-wrap">
+        <div className="graph-view-switch glass" role="group" aria-label="Graph view">
+          {(['cloud', 'atlas'] as const).map((v) => (
+            <button key={v} className={view === v ? 'on' : ''} aria-pressed={view === v} onClick={() => chooseView(v)}>
+              {v === 'cloud' ? 'Cloud' : 'Atlas'}
+            </button>
+          ))}
+        </div>
         <div className="graph-search glass">
           <Icon name="search" size={16} />
           <input
@@ -177,9 +203,9 @@ export function GraphView({ focus }: { focus?: string }) {
       </div>
 
       {regions.length > 0 && (
-        <nav className={`atlas glass ${atlasOpen ? '' : 'closed'}`} aria-label="Atlas">
+        <nav className={`atlas glass ${atlasOpen ? '' : 'closed'}`} aria-label="Regions">
           <button className="atlas-head" onClick={() => setAtlasOpen(!atlasOpen)} aria-expanded={atlasOpen}>
-            <Icon name="graph" size={14} /> <span>Atlas</span> <small>{regions.length} regions</small>
+            <Icon name="graph" size={14} /> <span>Regions</span> <small>{regions.length} regions</small>
           </button>
           {atlasOpen && (
             <ul className="atlas-list">
@@ -221,7 +247,7 @@ export function GraphView({ focus }: { focus?: string }) {
               </button>
             ))}
           </div>
-          <p className="muted small">Color = region. Shape = kind: dot note, ring web page, double ring PDF, cross prompt, square file.</p>
+          <p className="muted small">Color = region; the cloud groups each region into its own patch. Shape = kind: dot note, ring web page, double ring PDF, cross prompt, square file.</p>
           <p className="muted small">Keys: F show everything · Tab next connection · Enter open · Esc let go</p>
         </div>
       )}

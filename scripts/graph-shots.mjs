@@ -136,17 +136,50 @@ try {
       await page.waitForFunction(() => window.__graphSettledAt > window.__t0, null, { timeout: 30000 })
       const settle = await page.evaluate(() => window.__graphSettledAt - window.__t0)
       await page.waitForTimeout(1500) // let the camera finish framing the settled cloud
-      const m = await measure(page)
-      let overlaps = 0, onPanels = 0, offCanvas = 0
-      m.labels.forEach((a, i) => {
-        for (const b of m.labels.slice(i + 1)) if (intersects(a, b)) overlaps++
-        if (m.panels.some((p) => intersects(a, p))) onPanels++
-        if (a.x < 0 || a.y < 0 || a.x + a.w > m.w || a.y + a.h > m.h) offCanvas++
-      })
-      const file = join(outDir, `graph-${theme}-${name}-${count}.png`)
-      await page.screenshot({ path: file })
-      console.log(`${theme.padEnd(5)} ${name.padEnd(7)} nodes ${String(m.nodes).padStart(5)}  settle ${String(Math.round(settle)).padStart(5)} ms  labels ${String(m.labels.length).padStart(2)}  overlaps ${overlaps}  on panels ${onPanels}  off canvas ${offCanvas}  ${file}`)
-      if (overlaps || onPanels || offCanvas) failures++
+      const report = async (view, settleMs) => {
+        const m = await measure(page)
+        let overlaps = 0, onPanels = 0, offCanvas = 0
+        m.labels.forEach((a, i) => {
+          for (const b of m.labels.slice(i + 1)) if (intersects(a, b)) overlaps++
+          if (m.panels.some((p) => intersects(a, p))) onPanels++
+          if (a.x < 0 || a.y < 0 || a.x + a.w > m.w || a.y + a.h > m.h) offCanvas++
+        })
+        const file = join(outDir, `graph-${view}-${theme}-${name}-${count}.png`)
+        await page.screenshot({ path: file })
+        console.log(`${view.padEnd(5)} ${theme.padEnd(5)} ${name.padEnd(7)} nodes ${String(m.nodes).padStart(5)}  settle ${settleMs === undefined ? '    -' : String(Math.round(settleMs)).padStart(5)} ms  labels ${String(m.labels.length).padStart(2)}  overlaps ${overlaps}  on panels ${onPanels}  off canvas ${offCanvas}  ${file}`)
+        if (overlaps || onPanels || offCanvas) failures++
+      }
+      await report('cloud', settle)
+      const pressed = (label) => page.evaluate((l) => [...document.querySelectorAll('.graph-view-switch button')].find((b) => b.textContent === l)?.getAttribute('aria-pressed') === 'true', label)
+      const check = (ok, what) => { if (!ok) { console.error(`FAIL: ${what}`); failures++ } }
+      check(await pressed('Cloud'), 'Cloud is the default view')
+      // Atlas: the switch changes the scene
+      await page.click('.graph-view-switch button:has-text("Atlas")')
+      await page.waitForTimeout(2500)
+      check(await pressed('Atlas'), 'switch shows Atlas after clicking it')
+      await report('atlas')
+      if (theme === 'dark' && name === 'desktop') {
+        // remembered per device
+        await page.reload()
+        await page.waitForSelector('.graph-view-switch')
+        check(await pressed('Atlas'), 'Atlas is still selected after a reload')
+        // Open in graph always shows Cloud, and leaves the remembered choice alone
+        await page.evaluate(() => { location.hash = '#/graph?focus=seed3' })
+        await page.reload()
+        await page.waitForSelector('.graph-view-switch')
+        check(await pressed('Cloud'), '#/graph?focus=<id> opens Cloud')
+        check((await page.evaluate(() => localStorage.getItem('mv.graph.view'))) === 'atlas', 'focus link keeps the stored view')
+        // Esc in Atlas: deselects a note first, then flies back to the ring
+        await page.evaluate(() => { location.hash = '#/graph' })
+        await page.reload()
+        await page.waitForSelector('.graph-view-switch')
+        check(await pressed('Atlas'), 'stored Atlas returns after the focus link')
+        await page.click('.atlas-list li:nth-child(2) button')
+        await page.waitForTimeout(1500)
+        await page.keyboard.press('Escape')
+        await page.waitForTimeout(1500)
+        check((await page.evaluate(() => (window.__graphLabels ?? []).filter((l) => l.kind === 'region').length)) >= 3, 'Esc in Atlas returns to the ring of regions')
+      }
       await context.close()
     }
   }

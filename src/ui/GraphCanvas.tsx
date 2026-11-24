@@ -252,6 +252,11 @@ export const GraphCanvas = forwardRef<GraphHandle, Props>(function GraphCanvas({
     kickRef.current()
   }
 
+  /** Atlas focus() and back() clear the scene's selection; tell the app so its note card closes with the ring. */
+  const deselectAfterAtlasMove = () => {
+    if (propsRef.current.selectedId) propsRef.current.onSelect(null)
+  }
+
   useImperativeHandle(ref, () => ({
     zoomBy: (factor) => {
       const atlas = atlasRef.current
@@ -264,6 +269,7 @@ export const GraphCanvas = forwardRef<GraphHandle, Props>(function GraphCanvas({
     fit: () => {
       if (atlasRef.current) {
         atlasRef.current.fit()
+        deselectAfterAtlasMove()
         kickRef.current()
         return
       }
@@ -295,6 +301,7 @@ export const GraphCanvas = forwardRef<GraphHandle, Props>(function GraphCanvas({
     focusRegion: (name) => {
       if (atlasRef.current) {
         atlasRef.current.focus(name || null)
+        deselectAfterAtlasMove()
         kickRef.current()
         return
       }
@@ -837,9 +844,14 @@ export const GraphCanvas = forwardRef<GraphHandle, Props>(function GraphCanvas({
       const p = local(e)
       const hit = atlas.pick(p.x, p.y)
       if (!hit) {
-        if (atlas.focused()) atlas.focus(null)
-        else if (propsRef.current.selectedId) propsRef.current.onSelect(null)
-      } else if (hit.kind === 'orb') atlas.focus(hit.region)
+        if (atlas.focused()) {
+          atlas.focus(null)
+          deselectAfterAtlasMove()
+        } else if (propsRef.current.selectedId) propsRef.current.onSelect(null)
+      } else if (hit.kind === 'orb') {
+        atlas.focus(hit.region)
+        deselectAfterAtlasMove()
+      }
       else {
         const now = Date.now()
         const double = now - aTap.t < TAP_MS && aTap.id === hit.id
