@@ -12,7 +12,12 @@ export interface LabelRequest {
   kind: 'note' | 'region' | 'hub'
 }
 
+/** Pill geometry shared with drawLabelPill (graphFx.ts): the placed box is the full pill the canvas draws. */
+export const pillPadX = (size: number) => size * 0.62
+export const pillHeight = (size: number) => size * 1.62
+
 export interface PlacedLabel extends LabelRequest {
+  /** Full pill rectangle (text width + 2*pillPadX, pillHeight tall), not just the text. */
   box: { x: number; y: number; w: number; h: number }
   text: string
   side: 'right' | 'left'
@@ -38,8 +43,8 @@ export function placeLabels(
   const placed: PlacedLabel[] = []
   for (const r of sorted) {
     const text = r.text.length > maxChars ? r.text.slice(0, maxChars - 1) + '…' : r.text
-    const w = measure(text, r.size)
-    const h = r.size + 2
+    const w = measure(text, r.size) + pillPadX(r.size) * 2
+    const h = pillHeight(r.size)
     const gap = r.dotRadius * 1.2 + 6
     let side: 'right' | 'left' = 'right'
     let bx = r.x + gap

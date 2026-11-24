@@ -1,5 +1,6 @@
 /** Visual building blocks for the galaxy graph: palette, sprites, background sky and dust. */
 import { hash01, type Star, type V3 } from '../core/galaxy'
+import { pillHeight, pillPadX } from './graphLabels'
 
 export type RGB = [number, number, number]
 
@@ -273,8 +274,8 @@ export function bendPoint(ax: number, ay: number, bx: number, by: number, seed: 
 export function drawLabelPill(g: CanvasRenderingContext2D, text: string, x: number, y: number, size: number, tint: RGB, strong: boolean) {
   g.font = `${strong ? 650 : 520} ${size}px Inter, system-ui, sans-serif`
   const tw = g.measureText(text).width
-  const padX = size * 0.62
-  const height = size + size * 0.62
+  const padX = pillPadX(size)
+  const height = pillHeight(size)
   const left = x - tw / 2 - padX
   g.fillStyle = strong ? 'rgba(6,10,16,0.86)' : 'rgba(6,10,16,0.66)'
   g.strokeStyle = `rgba(${tint[0]},${tint[1]},${tint[2]},${strong ? 0.75 : 0.32})`

@@ -64,4 +64,17 @@ describe('placeLabels', () => {
       expect(p.box.y + p.box.h).toBeLessThanOrEqual(300)
     }
   })
+
+  it('box is the full pill: text width + 1.24*size by 1.62*size', () => {
+    const [p] = placeLabels([req({ text: 'hello', size: 10 })], measure, big, [])
+    expect(p.box.w).toBeCloseTo(measure('hello', 10) + 12.4)
+    expect(p.box.h).toBeCloseTo(16.2)
+  })
+
+  it('does not place two labels whose pills overlap even if bare text would not', () => {
+    // bare text boxes (30 wide, 10 tall) sit 4px apart vertically; pills (16.2 tall) would overlap
+    const a = req({ id: 'a', x: 100, y: 100, priority: 2 })
+    const b = req({ id: 'b', x: 100, y: 114, priority: 1 })
+    expect(placeLabels([a, b], measure, big, []).map((p) => p.id)).toEqual(['a'])
+  })
 })
