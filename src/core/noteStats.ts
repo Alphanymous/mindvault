@@ -25,15 +25,24 @@ export function readingMinutes(words: number): number {
   return Math.max(1, Math.round(words / WORDS_PER_MINUTE))
 }
 
-const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+/** Target of a wikilink body: "Note#heading|alias" -> "Note". */
+const linkTarget = (inner: string) => inner.split('|')[0].split('#')[0].trim()
 
-/** The line of `content` that links to `title`, as plain words, cut to about `max` characters around the link. */
-export function mentionExcerpt(content: string, title: string, max = 140): string | null {
-  const linkRe = new RegExp(`\\[\\[\\s*${escapeRe(title.trim())}\\s*(?:[#|][^\\]]*)?\\]\\]`, 'i')
-  const line = content.split('\n').find((l) => linkRe.test(l))
-  if (!line) return null
-  const raw = line.replace(/^\s*(?:>\s*)*(?:[-*+]\s+|\d+\.\s+)?(?:\[[ xX]\]\s+)?/, '')
-  const at = raw.search(linkRe)
+/**
+ * The line of `content` that links to a note, as plain words, cut to about `max` characters around the link.
+ * `target` is the note's title, or a test that says whether a link target points at the note (for slugs and file names).
+ */
+export function mentionExcerpt(content: string, target: string | ((linkTarget: string) => boolean), max = 140): string | null {
+  const isTarget = typeof target === 'string' ? (t: string) => t.toLowerCase() === target.trim().toLowerCase() : target
+  for (const line of content.split('\n')) {
+    const raw = line.replace(/^\s*(?:>\s*)*(?:[-*+]\s+|\d+\.\s+)?(?:\[[ xX]\]\s+)?/, '')
+    const hit = [...raw.matchAll(WIKILINK)].find((m) => isTarget(linkTarget(m[1])))
+    if (hit) return excerptAround(raw, hit.index!, max)
+  }
+  return null
+}
+
+function excerptAround(raw: string, at: number, max: number): string {
   const before = wikilinksToWords(raw.slice(0, at))
   const plain = (before + wikilinksToWords(raw.slice(at))).replace(/\s+/g, ' ').trim()
   if (plain.length <= max) return plain

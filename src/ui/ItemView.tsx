@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { buildGraph, neighborhood } from '../core/links'
 import { normalizeTag, parseInlineTags } from '../core/markdown'
 import type { Annotation, GraphNode, Item } from '../core/types'
@@ -119,11 +119,14 @@ function ItemBody({ item, page }: { item: Item; page?: number }) {
   }
 
   const canHighlight = item.type !== 'prompt'
+  const linksRef = useRef<HTMLDivElement>(null)
   const inspectLinks = () => {
-    const el = document.getElementById('item-links')
-    el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-    el?.classList.remove('flash')
-    requestAnimationFrame(() => el?.classList.add('flash'))
+    const el = linksRef.current
+    if (!el) return
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    el.classList.remove('flash')
+    void el.offsetWidth // restart the animation on repeated clicks
+    el.classList.add('flash')
   }
 
   return (
@@ -191,7 +194,7 @@ function ItemBody({ item, page }: { item: Item; page?: number }) {
         ) : (
           <p className="muted">Empty. Switch to Edit and start writing. Link notes with [[double brackets]].</p>
         )}
-        {mode !== 'edit' && <Mentions title={item.title} backlinks={backlinks} />}
+        {mode !== 'edit' && <Mentions id={item.id} backlinks={backlinks} />}
       </div>
 
       <aside className="item-side">
@@ -218,7 +221,7 @@ function ItemBody({ item, page }: { item: Item; page?: number }) {
             </ul>
           </section>
         )}
-        <div id="item-links" className="item-links">
+        <div ref={linksRef} className="item-links">
         <LinkList title={`Linked from (${backlinks.length})`} items={backlinks} empty="No notes link here yet." />
         <LinkList title={`Links to (${outgoing.length})`} items={outgoing} empty="Use [[Note title]] to link." />
         </div>

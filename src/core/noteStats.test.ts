@@ -45,6 +45,13 @@ describe('mentionExcerpt', () => {
   it('returns null when the note does not link to the title', () => {
     expect(mentionExcerpt('Nothing here about it', 'Target')).toBeNull()
   })
+
+  it('finds links written by slug or file name when given a resolver', () => {
+    const isSelf = (t: string) => ['cognitive architecture', 'cognitive-architecture', 'cog-arch'].includes(t.toLowerCase())
+    expect(mentionExcerpt('Read [[cognitive-architecture]] first', isSelf)).toBe('Read cognitive-architecture first')
+    expect(mentionExcerpt('Other [[Thing]]\nAlso [[cog-arch|the map]] here', isSelf)).toBe('Also the map here')
+    expect(mentionExcerpt('Only [[Thing]]', isSelf)).toBeNull()
+  })
 })
 
 describe('captureSignals', () => {

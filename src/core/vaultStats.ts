@@ -1,5 +1,5 @@
 /** Read-only statistics for the Clusters & Tags page: regions, tag usage, orphans and the most linked items. */
-import { UNFILED } from './clusters'
+import { UNFILED, regionOfFolder } from './clusters'
 import type { LinkIndex } from './links'
 import type { Item } from './types'
 
@@ -12,17 +12,19 @@ export interface RegionStat {
   top?: Item
 }
 
-const regionName = (i: Item) => i.folder.split('/')[0].trim() || UNFILED
 const backlinkCount = (links: LinkIndex, id: string) => links.backlinks.get(id)?.length ?? 0
 const isLinked = (links: LinkIndex, id: string) => backlinkCount(links, id) > 0 || (links.outgoing.get(id)?.length ?? 0) > 0
+
+function push<K, V>(groups: Map<K, V[]>, key: K, value: V) {
+  const list = groups.get(key)
+  if (list) list.push(value)
+  else groups.set(key, [value])
+}
 
 /** Regions (top-level folders), largest first; Unfiled always last. */
 export function regionStats(items: Item[], links: LinkIndex): RegionStat[] {
   const groups = new Map<string, Item[]>()
-  for (const i of items) {
-    const name = regionName(i)
-    groups.set(name, [...(groups.get(name) ?? []), i])
-  }
+  for (const i of items) push(groups, regionOfFolder(i.folder), i)
   return [...groups.entries()]
     .map(([name, members]) => {
       const ranked = [...members].sort((a, b) => backlinkCount(links, b.id) - backlinkCount(links, a.id))
@@ -41,7 +43,7 @@ export interface TagStat {
 
 export function tagStats(items: Item[], links: LinkIndex): TagStat[] {
   const byTag = new Map<string, Item[]>()
-  for (const i of items) for (const t of i.tags) byTag.set(t, [...(byTag.get(t) ?? []), i])
+  for (const i of items) for (const t of i.tags) push(byTag, t, i)
   return [...byTag.entries()]
     .map(([tag, members]) => ({
       tag,

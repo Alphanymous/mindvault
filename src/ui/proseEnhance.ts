@@ -22,7 +22,8 @@ function decorateCode(root: HTMLElement) {
 
 function decorateCallouts(root: HTMLElement) {
   root.querySelectorAll<HTMLQuoteElement>('blockquote:not([data-callout])').forEach((bq) => {
-    const first = bq.querySelector('p')?.firstChild
+    // :scope > p:first-child: a nested quote's marker must not turn the outer quote into the callout.
+    const first = bq.querySelector(':scope > p:first-child')?.firstChild
     if (!(first instanceof Text)) return
     const m = CALLOUT.exec(first.data)
     if (!m) return
@@ -35,11 +36,15 @@ function decorateCallouts(root: HTMLElement) {
     marker.replaceWith(markerSpan)
     markerSpan.append(marker)
     const rest = markerSpan.nextSibling
+    const title = document.createElement('span')
+    title.className = 'callout-title'
     if (rest instanceof Text && rest.data.trim()) {
-      const title = document.createElement('span')
-      title.className = 'callout-title'
       rest.replaceWith(title)
       title.append(rest)
+    } else {
+      // No title written: CSS shows the type ("Warning") from data-label, adding no text.
+      title.dataset.label = bq.dataset.callout
+      markerSpan.after(title)
     }
   })
 }

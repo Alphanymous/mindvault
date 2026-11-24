@@ -1,4 +1,4 @@
-# Feature guide (v0.2)
+# Feature guide (v0.3)
 
 ## Home and collections
 Home shows what you were reading, your prompt shelf, pinned items and collections. A collection is a saved filter (type, tag, folder, text, "updated in the last N days", "never opened", pinned). Built-ins: Pinned, Unread web clips, This week, PDFs, All prompts. Open the Library, apply filters, press **Save as collection**. "Unread" is tracked per device.
@@ -14,6 +14,16 @@ Every item shows similar items. **Link** appends `Related: [[Title]]` so the con
 
 ## Prompts
 Open **Prompts** for the toolbox. Fill `{{variables}}` once; answers are remembered across prompts on this device. **Copy for** records which model you used it with. **New variant** copies a prompt (frontmatter `variant_of`) so you can reword it without losing the original. **Run it now** appears when a chat endpoint is set in Settings → AI sorting.
+
+## Writing
+Edit mode has a formatting bar: link a note `[[ ]]`, heading, bold, italic, task, tag and code. Ctrl+B and Ctrl+I work too, and Ctrl+Z undoes any of them.
+- Buttons toggle: bold on bold text removes it; heading and task replace a marker already on the line (`# Title` becomes `## Title`, `- milk` becomes `- [ ] milk`) and apply to every selected line.
+- **Tag** on selected words turns them into a tag ("deep work" becomes `#deep-work`).
+- Read mode shows Obsidian-style callouts (`> [!tip] Title`; without a title the type is shown), task lists as cards, and code blocks with the language and a copy button.
+- Under a note, **Mentioned in** quotes the line of each note that links to it, including links written by slug or file name.
+
+## Clusters & Tags
+The **Clusters** page (sidebar, or `>` in the palette) shows each region (top-level folder) with its size, how much of it is linked and its most linked note, plus tag usage, tags used only once, the two tags that appear together most, and the most linked items.
 
 ## Reader and highlights
 PDFs open in the app (PDF / Text / Edit switch). Select text, choose a color. Web clips and notes support highlights in Read mode. The Highlights panel lists them; **Note** creates a note with the quote and a link back (PDF notes link to the page). Highlights are stored with the item and sync like any edit.

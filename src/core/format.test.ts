@@ -4,7 +4,7 @@ import { applyFormat, diffEdit } from './format'
 describe('applyFormat', () => {
   it('wraps the selection in bold, italic, code and wikilink marks and keeps it selected', () => {
     expect(applyFormat('say hi now', 4, 6, 'bold')).toEqual({ value: 'say **hi** now', start: 6, end: 8 })
-    expect(applyFormat('say hi now', 4, 6, 'italic')).toEqual({ value: 'say _hi_ now', start: 5, end: 7 })
+    expect(applyFormat('say hi now', 4, 6, 'italic')).toEqual({ value: 'say *hi* now', start: 5, end: 7 })
     expect(applyFormat('say hi now', 4, 6, 'code')).toEqual({ value: 'say `hi` now', start: 5, end: 7 })
     expect(applyFormat('say hi now', 4, 6, 'wikilink')).toEqual({ value: 'say [[hi]] now', start: 6, end: 8 })
   })
@@ -43,6 +43,52 @@ describe('applyFormat', () => {
   it('never loses selected text that cannot become a tag', () => {
     expect(applyFormat('a 2024 b', 2, 6, 'tag').value).toBe('a #2024 b')
     expect(applyFormat('a !!! b', 2, 5, 'tag').value).toBe('a #!!! b')
+  })
+})
+
+describe('applyFormat on existing markers', () => {
+  it('replaces a different heading level instead of stacking it', () => {
+    expect(applyFormat('# Title', 3, 3, 'heading').value).toBe('## Title')
+    expect(applyFormat('### Sub', 0, 0, 'heading').value).toBe('## Sub')
+  })
+
+  it('turns a bullet into a task and removes a task marker whatever its state', () => {
+    expect(applyFormat('- milk', 3, 3, 'task')).toEqual({ value: '- [ ] milk', start: 7, end: 7 })
+    expect(applyFormat('  * milk', 5, 5, 'task').value).toBe('  - [ ] milk')
+    expect(applyFormat('- [x] milk', 7, 7, 'task')).toEqual({ value: 'milk', start: 1, end: 1 })
+  })
+
+  it('applies line formats to every selected line', () => {
+    expect(applyFormat('a\nb\nc', 0, 3, 'task').value).toBe('- [ ] a\n- [ ] b\nc')
+    expect(applyFormat('- [ ] a\n- [x] b', 0, 13, 'task').value).toBe('a\nb')
+    expect(applyFormat('- [ ] a\nb', 0, 9, 'task').value).toBe('- [ ] a\n- [ ] b')
+    // a selection that ends at the start of a line does not touch that line
+    expect(applyFormat('a\nb', 0, 2, 'heading').value).toBe('## a\nb')
+    expect(applyFormat('\nb', 0, 0, 'heading').value).toBe('## \nb')
+  })
+
+  it('keeps whitespace at the edges of a selection outside the marks', () => {
+    expect(applyFormat('hi there', 0, 3, 'bold')).toEqual({ value: '**hi** there', start: 2, end: 4 })
+    expect(applyFormat('say  hi', 3, 7, 'italic')).toEqual({ value: 'say  *hi*', start: 6, end: 8 })
+  })
+
+  it('italicises inside a word with *', () => {
+    expect(applyFormat('foobar', 3, 6, 'italic').value).toBe('foo*bar*')
+  })
+
+  it('removes marks that are already there instead of doubling them', () => {
+    expect(applyFormat('say **hi** now', 6, 8, 'bold')).toEqual({ value: 'say hi now', start: 4, end: 6 })
+    expect(applyFormat('say **hi** now', 4, 10, 'bold')).toEqual({ value: 'say hi now', start: 4, end: 6 })
+    expect(applyFormat('say *hi* now', 5, 7, 'italic').value).toBe('say hi now')
+    expect(applyFormat('a `x` b', 3, 4, 'code').value).toBe('a x b')
+    expect(applyFormat('a [[x]] b', 4, 5, 'wikilink').value).toBe('a x b')
+  })
+
+  it('tells bold and italic apart when toggling', () => {
+    expect(applyFormat('**hi**', 2, 4, 'italic').value).toBe('***hi***')
+    expect(applyFormat('***hi***', 3, 5, 'italic').value).toBe('**hi**')
+    expect(applyFormat('***hi***', 3, 5, 'bold').value).toBe('*hi*')
+    expect(applyFormat('*hi*', 1, 3, 'bold').value).toBe('***hi***')
   })
 })
 
