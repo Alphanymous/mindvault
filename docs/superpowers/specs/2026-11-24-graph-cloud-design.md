@@ -1,6 +1,6 @@
 # Graph: from spinning galaxy to EleSync-style brain cloud
 
-Date: 2026-11-24 · Status: reviewed, awaiting Santo's approval
+Date: 2026-11-24 · Status: approved by Santo (2026-11-24)
 
 ## Intent
 
@@ -116,8 +116,7 @@ spiral (as EleSync's `seed()`). Deterministic randomness from node ids (Mindvaul
 Port of `dashboard-graph-atlas.js`: one orb per region (max 12, the rest grouped as "Everything else") on a
 ring, orb size by note count, satellites circling, thin spokes to a golden central cloud of every note
 (sampled above 2200). Clicking an orb flies in and fans out up to 150 of its newest notes; click a note to
-select, double-click to open; Back returns. The existing Atlas button and list in `GraphView` switch the
-canvas between "Cloud" and "Atlas"; picking a region in the list focuses that orb.
+select, double-click to open; Back returns. Switching views follows "Views and switching" above.
 
 ### Behaviour kept
 
