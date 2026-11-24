@@ -56,3 +56,10 @@
 - **v0.3.17**: typing `#` over a selection now makes it a tag too (`beforeinput`). Verified in Chromium with Pixel 7 emulation (keyboard and touch toolbar); not yet on a real Android keyboard, which may send `#` as composition input that can't be intercepted.
 - **Not verified**: undo of toolbar edits on Android (phone keyboards have no Ctrl+Z) and in Safari / iOS (the editor falls back to a plain update there if `execCommand` is unavailable, so Ctrl+Z may skip toolbar edits), and Windows high-contrast focus rings.
 - Task-list card styling needs `:has()` (Chromium 105+, Safari 15.4+); older WebViews show plain checkboxes.
+
+## v0.3.18 (text from images)
+
+- OCR now rebuilds the page from Tesseract's word positions (`core/ocrLayout`): columns are read one at a time instead of line by line across the page, wrapped lines are joined into paragraphs, larger text becomes headings, and bullet glyphs (often read as `«`, `+`, `*`) become Markdown lists. Tesseract runs in sparse mode, which finds sidebar and label text the default mode dropped.
+- Tested on real Tesseract output for two screenshots (an article with a sidebar, and a single-column document with a numbered list), and end to end in the app in Chromium.
+- **Not tested**: phone photos of paper (tilted or curved pages, uneven light), tables, and multi-column newspaper layouts with a headline across all columns. Tables come out as lines of text, not Markdown tables. Misread words (for example `wil` for `will`) are an OCR accuracy limit, not a layout one.
+
