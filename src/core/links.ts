@@ -90,7 +90,7 @@ export function buildGraph(items: Item[], opts: GraphOptions = DEFAULT_GRAPH_OPT
   }
 
   for (const it of live) {
-    nodes.set(it.id, { id: it.id, label: it.title, kind: 'item', itemType: it.type, degree: 0, folder: it.folder })
+    nodes.set(it.id, { id: it.id, label: it.title, kind: 'item', itemType: it.type, degree: 0, folder: it.folder, createdAt: it.createdAt })
   }
 
   for (const it of live) {

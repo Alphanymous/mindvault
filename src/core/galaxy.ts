@@ -2,6 +2,7 @@
  * 3D "galaxy" model for the knowledge graph: n-body-ish physics (repulsion, springs, central gravity pulling
  * everything into a rotating disc) and a perspective camera. Pure math, no DOM, so it is unit tested.
  */
+import { hash01 } from './hash'
 import type { EdgeKind, GraphData, GraphNode } from './types'
 
 export interface V3 {
@@ -84,17 +85,7 @@ export const DEFAULT_PHYSICS: PhysicsOptions = {
 const REST: Record<EdgeKind, number> = { link: 92, tag: 118, folder: 70 }
 const STIFF: Record<EdgeKind, number> = { link: 0.9, tag: 0.22, folder: 0.3 }
 
-/** Deterministic pseudo-random in [0,1) from a string, so layouts are reproducible. */
-export function hash01(s: string, salt = 0): number {
-  let h = 2166136261 ^ salt
-  for (let i = 0; i < s.length; i++) {
-    h ^= s.charCodeAt(i)
-    h = Math.imul(h, 16777619)
-  }
-  h ^= h >>> 13
-  h = Math.imul(h, 1274126177)
-  return ((h ^ (h >>> 16)) >>> 0) / 4294967296
-}
+export { hash01 } from './hash'
 
 export function radiusOf(n: GraphNode): number {
   if (n.kind === 'tag') return 2.4 + Math.sqrt(n.degree) * 0.9

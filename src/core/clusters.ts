@@ -1,5 +1,5 @@
 /** Regions of the galaxy: every top-level folder is a region with its own neon color. */
-import { hash01 } from './galaxy'
+import { hash01 } from './hash'
 import type { GraphNode } from './types'
 
 /** Curated hues (degrees) from the app colors: blues, greens and a few reds. Neighbouring regions differ clearly. */

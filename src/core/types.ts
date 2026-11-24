@@ -109,6 +109,8 @@ export interface GraphNode {
   /** Number of connections, used for node size. */
   degree: number
   folder?: string
+  /** Items only: creation time, so views can show the newest notes first. */
+  createdAt?: number
 }
 
 export interface GraphEdge {
