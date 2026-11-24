@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { REGION_HUES, UNFILED, buildRegions, hslToRgb, regionOf, regionRgb } from './clusters'
+import { REGION_HUES, UNFILED, buildRegions, hslToRgb, regionHue, regionOf, regionRgb } from './clusters'
 import type { GraphNode } from './types'
 
 const item = (id: string, folder: string): GraphNode => ({ id, label: id, kind: 'item', itemType: 'note', degree: 1, folder })
@@ -13,14 +13,29 @@ describe('regions', () => {
     expect(regionOf({ id: 'f', label: 'Dev/Code', kind: 'folder', degree: 3 })).toBe('Dev')
   })
 
-  it('counts members, gives each region its own hue and keeps colors stable regardless of node order', () => {
+  it('counts members, gives each region a palette hue and keeps colors stable regardless of node order', () => {
     const nodes = [item('1', 'Work'), item('2', 'Work/Clients'), item('3', 'Life'), item('4', ''), { id: 'f', label: 'Work', kind: 'folder' as const, degree: 2 }]
     const a = buildRegions(nodes)
     const b = buildRegions([...nodes].reverse())
     expect(a).toEqual(b)
     expect(a.map((r) => [r.name, r.count])).toEqual([['Life', 1], ['Unfiled', 1], ['Work', 2]])
-    expect(new Set(a.map((r) => r.hue)).size).toBe(3)
     expect(a.every((r) => REGION_HUES.includes(r.hue))).toBe(true)
+  })
+
+  it('gives a region the same colour whatever other regions exist', () => {
+    const before = buildRegions([item('a', 'Research'), item('b', 'Reading')])
+    const after = buildRegions([item('a', 'Research'), item('b', 'Reading'), item('c', 'Archive')])
+    expect(after.find((r) => r.name === 'Research')!.hue).toBe(before.find((r) => r.name === 'Research')!.hue)
+    expect(after.find((r) => r.name === 'Reading')!.hue).toBe(before.find((r) => r.name === 'Reading')!.hue)
+  })
+
+  it('derives hues from the palette, deterministically', () => {
+    expect(REGION_HUES).toContain(regionHue('Projects'))
+    expect(regionHue('Projects')).toBe(regionHue('Projects'))
+  })
+
+  it('keeps Unfiled on a fixed muted hue', () => {
+    expect(regionHue(UNFILED)).toBe(214)
   })
 
   it('wraps hues when there are more regions than colors', () => {

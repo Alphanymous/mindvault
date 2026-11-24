@@ -37,7 +37,8 @@ export function GraphView({ focus }: { focus?: string }) {
   const full = useMemo(() => buildGraph(items, { ...opts, types: types.size === 5 ? undefined : types }), [items, opts, types])
   // "Only this neighbourhood": the selected star and what sits within two connections of it
   const data = useMemo(() => (localOnly && selected ? neighbourhood(full, selected, NEIGHBOURHOOD_HOPS) : full), [full, localOnly, selected])
-  const regions = useMemo(() => buildRegions(data.nodes), [data])
+  // regions come from all live notes, so colours and the legend stay put while filtering
+  const regions = useMemo(() => buildRegions(buildGraph(live).nodes), [live])
 
   // search lights stars up instead of removing them, so you keep your bearings
   const extra = useMemo(() => new Map(live.map((i) => [i.id, `${i.folder} ${i.tags.map((t) => '#' + t).join(' ')}`])), [live])
