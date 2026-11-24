@@ -26,7 +26,9 @@ body { font: 15px/23px var(--font); font-feature-settings: 'cv11', 'ss01'; }
 .caps { font-size: 11px; line-height: 16px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
 .ok-text { color: var(--green); }
 .accent { color: var(--blue); }
-:focus-visible { outline: 0; box-shadow: var(--ring); border-radius: var(--r); }
+/* transparent outline: invisible normally, drawn in the system colour in Windows high-contrast (forced colours) */
+:focus-visible { outline: 2px solid transparent; box-shadow: var(--ring); }
+:where(a:not([class])):focus-visible { border-radius: 4px; }
 input:focus, select:focus, textarea:focus { box-shadow: var(--ring); }
 input, select, textarea { background: var(--well); border-radius: var(--r); }
 .btn { border-radius: var(--r); min-height: 38px; }
@@ -141,7 +143,9 @@ input[type='range']::-webkit-slider-thumb {
 .prose pre {
   position: relative; padding: 46px 18px 16px; border-radius: var(--r-md); background: var(--well); border: 1px solid var(--border);
   font-size: 13px; line-height: 22px; box-shadow: inset 0 1px 0 var(--hair);
+  overflow: hidden; /* the code scrolls, not the block, so the header and copy button stay in view */
 }
+.prose pre > code { display: block; overflow-x: auto; }
 .prose pre::before {
   content: attr(data-lang); position: absolute; left: 0; right: 0; top: 0; height: 34px; padding: 0 16px 0 66px; display: flex; align-items: center;
   font: 500 12px var(--mono); color: var(--muted); border-bottom: 1px solid var(--border);
@@ -168,6 +172,8 @@ input[type='range']::-webkit-slider-thumb {
 .prose li:has(> input[type='checkbox']) { list-style: none; margin-left: -1.4em; padding: 10px 14px; margin-bottom: 8px; border-radius: var(--r-md); background: color-mix(in srgb, var(--surface) 75%, transparent); border: 1px solid var(--border); font-family: var(--font); font-size: 15px; line-height: 23px; }
 .prose li > input[type='checkbox'] { margin-right: 10px; cursor: default; }
 .prose li:has(> input[type='checkbox']:checked) { color: var(--muted); text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--muted) 60%, transparent); }
+/* line-through can't be undone by children, but it does not reach inline-blocks: keeps sub-tasks readable */
+.prose li:has(> input[type='checkbox']:checked) > :is(ul, ol) { display: inline-block; width: 100%; color: var(--text); }
 /* callouts: > [!tip] Title */
 .prose blockquote { border-left-color: var(--blue); border-radius: 0 var(--r-md) var(--r-md) 0; background: color-mix(in srgb, var(--blue) 5%, transparent); padding: 6px 18px; }
 .prose blockquote.callout { --co: var(--blue); border: 1px solid color-mix(in srgb, var(--co) 45%, transparent); border-radius: var(--r-md); background: color-mix(in srgb, var(--co) 7%, var(--surface)); color: var(--text); font-family: var(--font); font-size: 15px; line-height: 24px; padding: 12px 16px; }
@@ -177,6 +183,7 @@ input[type='range']::-webkit-slider-thumb {
 .callout-marker { display: none; }
 .callout-title { display: block; margin-bottom: 4px; font-size: 11px; line-height: 16px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--co); }
 .callout-title::before { content: '◆'; margin-right: 6px; }
+.callout-title:empty::after { content: attr(data-label); }
 
 /* "Mentioned in N notes" under the text */
 .mentions { margin-top: 18px; border-top: 1px solid var(--border); padding-top: 14px; display: flex; flex-direction: column; gap: 10px; max-width: 68ch; }
@@ -343,7 +350,7 @@ input[type='range']::-webkit-slider-thumb {
   .item-head .type-badge { display: none; }
   .palette { border-radius: var(--r-xl) var(--r-xl) var(--r-lg) var(--r-lg); }
   .palette-input input, .capture-well textarea { font-size: 16px; }
-  .pl-tip:nth-child(2) { display: none; }
+  .pl-tip { display: none; }
   .md-toolbar { top: calc(4px + var(--safe-t)); }
   .capture-titles p { display: none; }
   .graph-page .graph-card { width: auto; }

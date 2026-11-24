@@ -9,9 +9,12 @@ export const UNFILED = 'Unfiled'
 /** Region of a node: first folder segment for notes and folders; null for tags and unwritten links. */
 export function regionOf(node: GraphNode): string | null {
   if (node.kind === 'tag' || node.kind === 'ghost') return null
-  const folder = node.kind === 'folder' ? node.label : (node.folder ?? '')
-  const first = folder.split('/')[0].trim()
-  return first || UNFILED
+  return regionOfFolder(node.kind === 'folder' ? node.label : (node.folder ?? ''))
+}
+
+/** Region of a folder path: its first segment, or Unfiled. */
+export function regionOfFolder(folder: string): string {
+  return folder.split('/')[0].trim() || UNFILED
 }
 
 export interface Region {

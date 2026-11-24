@@ -46,3 +46,10 @@
 - An older v0.2 device that syncs with v0.3 still shows its own Inbox for items it captures; v0.3 files them once they arrive.
 - Animations (aurora background, turning edge on the search box, button sheen) are CSS only and stop with the system "reduce motion" setting; their cost on low-end phones is not measured.
 - APK for v0.3 built, not run on a phone.
+
+## v0.3.15–0.3.16 (Obsidian Glass redesign)
+
+- **Verified in headless Chromium against the dev server** (1280 px and 360 px, dark theme): toolbar formatting and undo/redo step by step, tagging a selection, wikilink autocomplete undo, long wikilinks wrapping on phones, code blocks scrolling with the header and copy button fixed, untitled and nested callouts, checked parent tasks not striking sub-tasks, Newsreader italic loading, mention quotes for slug links, phone palette footer.
+- Unit tests cover the formatting rules (`core/format`), sanitizer attributes (table alignment, `ol start`, image size, `lang`/`dir`, unsafe URLs still stripped) and callout decoration keeping the text unchanged.
+- **Not verified**: undo in Safari / iOS (the editor falls back to a plain update there if `execCommand` is unavailable, so Ctrl+Z may skip toolbar edits), the light theme after the redesign, Windows high-contrast focus rings, and the APK on a phone.
+- Task-list card styling needs `:has()` (Chromium 105+, Safari 15.4+); older WebViews show plain checkboxes.

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { mentionExcerpt } from '../../core/noteStats'
 import type { Item } from '../../core/types'
+import { useAppState } from '../../data/store'
 import { Icon } from '../Icon'
 import { href } from '../router'
 import { timeAgo } from '../util'
@@ -8,7 +9,8 @@ import { timeAgo } from '../util'
 const COLLAPSED = 4
 
 /** Notes that link here, with the sentence that mentions this note. Shown under the text, like a footer. */
-export function Mentions({ title, backlinks }: { title: string; backlinks: Item[] }) {
+export function Mentions({ id, backlinks }: { id: string; backlinks: Item[] }) {
+  const { links } = useAppState()
   const [open, setOpen] = useState(true)
   const [all, setAll] = useState(false)
   if (backlinks.length === 0) return null
@@ -23,7 +25,7 @@ export function Mentions({ title, backlinks }: { title: string; backlinks: Item[
       {open && (
         <ul className="mention-list">
           {shown.map((b) => {
-            const quote = mentionExcerpt(b.content, title)
+            const quote = mentionExcerpt(b.content, (target) => links.resolve(target) === id)
             return (
               <li key={b.id}>
                 <a className="mention-card" href={href({ name: 'item', id: b.id })}>
