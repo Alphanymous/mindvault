@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { REGION_HUES, UNFILED, buildRegions, hslToRgb, regionHue, regionOf, regionRgb } from './clusters'
+import { MIN_HUE_GAP, REGION_HUES, UNFILED, buildRegions, hslToRgb, regionHue, regionHues, regionOf, regionRgb } from './clusters'
 import type { GraphNode } from './types'
 
 const item = (id: string, folder: string): GraphNode => ({ id, label: id, kind: 'item', itemType: 'note', degree: 1, folder })
@@ -22,11 +22,37 @@ describe('regions', () => {
     expect(a.every((r) => REGION_HUES.includes(r.hue))).toBe(true)
   })
 
-  it('gives a region the same colour whatever other regions exist', () => {
-    const before = buildRegions([item('a', 'Research'), item('b', 'Reading')])
-    const after = buildRegions([item('a', 'Research'), item('b', 'Reading'), item('c', 'Archive')])
-    expect(after.find((r) => r.name === 'Research')!.hue).toBe(before.find((r) => r.name === 'Research')!.hue)
-    expect(after.find((r) => r.name === 'Reading')!.hue).toBe(before.find((r) => r.name === 'Reading')!.hue)
+  it('gives regions shown together clearly different hues', () => {
+    const gap = (a: number, b: number) => Math.min(Math.abs(a - b), 360 - Math.abs(a - b))
+    for (const names of [['Research', 'Projects', 'Journal', 'Reading', 'Ideas'], ['Work', 'Personal', 'Archive', 'Recipes', 'Travel'], ['Dev', 'Music', 'Health', 'Money', UNFILED]]) {
+      const hues = [...regionHues(names).values()]
+      for (let i = 0; i < hues.length; i++) for (let j = i + 1; j < hues.length; j++) expect(gap(hues[i], hues[j])).toBeGreaterThanOrEqual(MIN_HUE_GAP)
+    }
+    // and buildRegions (graph, Atlas, Clusters) uses exactly these hues
+    const regions = buildRegions(['Research', 'Projects', 'Journal', 'Reading', 'Ideas'].map((f) => item(f, f)))
+    const hues = regionHues(regions.map((r) => r.name))
+    expect(regions.every((r) => r.hue === hues.get(r.name))).toBe(true)
+  })
+
+  it('keeps existing hues when a folder that collides with none of them is added', () => {
+    const base = ['Research', 'Projects', 'Journal', 'Reading', 'Ideas']
+    const before = regionHues(base)
+    const gap = (a: number, b: number) => Math.min(Math.abs(a - b), 360 - Math.abs(a - b))
+    // a newcomer whose own hue is clear of every hue in use
+    const newcomer = ['Archive', 'Recipes', 'Travel', 'Music', 'Health', 'Money', 'Work', 'Clients', 'Garden', 'Books']
+      .find((n) => [...before.values()].every((h) => gap(h, regionHue(n)) >= MIN_HUE_GAP))!
+    expect(newcomer).toBeDefined()
+    const after = regionHues([...base, newcomer])
+    for (const name of base) expect(after.get(name)).toBe(before.get(name))
+    expect(after.get(newcomer)).toBe(regionHue(newcomer))
+  })
+
+  it('assigns hues deterministically, whatever order the names come in', () => {
+    const names = ['Research', 'Projects', 'Journal', 'Reading', 'Ideas', 'Work', 'Archive']
+    const a = regionHues(names), b = regionHues([...names].reverse())
+    expect([...a].sort()).toEqual([...b].sort())
+    expect(regionHues(names)).toEqual(a)
+    expect([...a.values()].every((h) => REGION_HUES.includes(h))).toBe(true)
   })
 
   it('derives hues from the palette, deterministically', () => {
