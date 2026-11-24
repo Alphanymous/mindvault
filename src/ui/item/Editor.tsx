@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { applyFormat, diffEdit, type Edit, type FormatKind } from '../../core/format'
 import { useAppState } from '../../data/store'
 import { Icon } from '../Icon'
@@ -70,6 +70,21 @@ export function Editor({ value, onChange, selfId }: { value: string; onChange(v:
     const pos = query.start + title.length + 2
     commitEdit(el, { value: next, start: pos, end: pos }, onChange, () => setQuery(null))
   }
+
+  // Typing # over selected words makes them a tag, like the toolbar button. Without this the browser's default
+  // replaces the selection with a lone "#". Native listener: React's onBeforeInput doesn't expose inputType.
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const onBeforeInput = (e: InputEvent) => {
+      if (e.inputType !== 'insertText' || e.data !== '#') return
+      if (!el.value.slice(el.selectionStart, el.selectionEnd).trim()) return
+      e.preventDefault()
+      format('tag')
+    }
+    el.addEventListener('beforeinput', onBeforeInput)
+    return () => el.removeEventListener('beforeinput', onBeforeInput)
+  })
 
   const format = (kind: FormatKind) => {
     const el = ref.current
