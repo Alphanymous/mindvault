@@ -279,10 +279,10 @@ ipcMain.handle('mv:capture-screenshot', async () => {
   }
   
   const buffer = image.toPNG()
-  const blob = new Blob([buffer], { type: 'image/png' })
-  
+  // Send the bytes, not a Blob: IPC can't carry Blobs (one arrives as an empty object), so the
+  // renderer builds the image file itself.
   return {
-    blob: blob,
+    data: new Uint8Array(buffer),
     name: `screenshot-${Date.now()}.png`,
     mime: 'image/png',
     size: buffer.length

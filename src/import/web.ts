@@ -20,7 +20,7 @@ declare global {
         clear(): Promise<FolderInfo>
         rpc(msg: unknown): Promise<Record<string, unknown>>
       }
-      captureScreenshot?: () => Promise<{ blob: Blob; name: string; mime: string; size: number }>
+      captureScreenshot?: () => Promise<{ data: Uint8Array<ArrayBuffer>; name: string; mime: string; size: number }>
     }
   }
 }
