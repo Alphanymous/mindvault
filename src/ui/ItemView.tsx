@@ -1,11 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { buildGraph, neighborhood } from '../core/links'
+import { useEffect, useRef, useState } from 'react'
 import { normalizeTag, parseInlineTags } from '../core/markdown'
 import type { Annotation, GraphNode, Item } from '../core/types'
 import { createItem, deleteItem, getBlob, updateItem, useAppState } from '../data/store'
 import { useRelated } from '../data/meaning'
 import { markOpened } from '../data/usage'
-import { GraphCanvas } from './GraphCanvas'
 import { Editor } from './item/Editor'
 import { Mentions } from './item/Mentions'
 import { Crumbs, LinkStrip, MetaChips } from './item/NoteHeader'
@@ -78,11 +76,6 @@ function ItemBody({ item, page }: { item: Item; page?: number }) {
   const outgoing = (links.outgoing.get(item.id) ?? []).map((i) => items.find((x) => x.id === i)).filter(Boolean) as Item[]
   const missing = links.unresolved.get(item.id) ?? []
   const linkedIds = new Set([...backlinks, ...outgoing].map((i) => i.id))
-
-  const local = useMemo(() => {
-    const g = buildGraph(items, { showTags: true, showFolders: false, showGhosts: true, hideOrphans: false })
-    return neighborhood(g, item.id)
-  }, [items, item.id])
 
   const remove = async () => {
     if (!confirm(`Delete "${item.title}"?`)) return
@@ -199,13 +192,7 @@ function ItemBody({ item, page }: { item: Item; page?: number }) {
 
       <aside className="item-side">
         {canHighlight && <HighlightsPanel item={item} onGo={goTo} />}
-        <section className="panel">
-          <h4>Local graph</h4>
-          <div className="mini-graph">
-            <GraphCanvas data={local} selectedId={item.id} onSelect={() => {}} onOpen={onGraphOpen} compact />
-          </div>
-          <a className="btn block" href={href({ name: 'graph', focus: item.id })}><Icon name="graph" size={16} /> Open in graph</a>
-        </section>
+        <a className="btn block" href={href({ name: 'graph', focus: item.id })}><Icon name="graph" size={16} /> Open in graph</a>
         {related.length > 0 && (
           <section className="panel">
             <h4>Related</h4>

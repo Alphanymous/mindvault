@@ -1,5 +1,6 @@
-/** Visual building blocks for the galaxy graph: palette, sprites, background sky and dust. */
-import { hash01, type Star, type V3 } from '../core/galaxy'
+/** Visual building blocks for the graph cloud: palette, sprites, backdrop, dust, item shapes, label pills, ripple. */
+import { hash01 } from '../core/hash'
+import type { GraphNode } from '../core/types'
 import { pillHeight, pillPadX } from './graphLabels'
 
 export type RGB = [number, number, number]
@@ -37,7 +38,7 @@ export function readPalette(): Palette {
   const cs = getComputedStyle(document.documentElement)
   const v = (n: string) => cs.getPropertyValue(n).trim()
   const dark = document.documentElement.getAttribute('data-theme') !== 'light'
-  // The galaxy is always drawn on a dark sky. In light mode the item colors are too dark for that, so use the dark-theme star colors.
+  // The graph is always drawn on a dark sky. In light mode the item colors are too dark for that, so use the dark-theme colors.
   const star = (name: string, fb: RGB, darkCss: string): RGB => toRgb(dark ? v(name) : darkCss, fb)
   return {
     accent: toRgb(dark ? v('--accent') : 'hsl(var(--h) 80% 62%)'.replace('var(--h)', v('--h') || '14'), [224, 100, 58]),
@@ -52,8 +53,8 @@ export function readPalette(): Palette {
   }
 }
 
-export function starColor(pal: Palette, s: Star): RGB {
-  const n = s.node
+/** Colour of a node that has no region (tags, unwritten links), or of an item by its kind. */
+export function kindColor(pal: Palette, n: GraphNode): RGB {
   if (n.kind === 'tag') return pal.tag
   if (n.kind === 'folder') return pal.folder
   if (n.kind === 'ghost') return pal.file
@@ -95,8 +96,8 @@ export function hazeSprite(rgb: RGB, size = 128): HTMLCanvasElement {
   const g = c.getContext('2d')!
   const h = size / 2
   const grad = g.createRadialGradient(h, h, 0, h, h, h)
-  grad.addColorStop(0, `rgba(${rgb[0]},${rgb[1]},${rgb[2]},0.2)`)
-  grad.addColorStop(0.45, `rgba(${rgb[0]},${rgb[1]},${rgb[2]},0.08)`)
+  grad.addColorStop(0, `rgba(${rgb[0]},${rgb[1]},${rgb[2]},0.3)`)
+  grad.addColorStop(0.5, `rgba(${rgb[0]},${rgb[1]},${rgb[2]},0.12)`)
   grad.addColorStop(1, `rgba(${rgb[0]},${rgb[1]},${rgb[2]},0)`)
   g.fillStyle = grad
   g.fillRect(0, 0, size, size)
@@ -105,54 +106,84 @@ export function hazeSprite(rgb: RGB, size = 128): HTMLCanvasElement {
 }
 
 export interface Sky {
-  dir: V3
+  /** Position as a share of the canvas, 0..1. */
+  x: number
+  y: number
   size: number
-  seed: number
   tint: RGB
+  alpha: number
 }
 
+/** Distant background stars, fixed on the canvas. */
 export function makeSky(count: number): Sky[] {
   return Array.from({ length: count }, (_, i) => {
-    const u = hash01('sky' + i, 1) * 2 - 1
-    const a = hash01('sky' + i, 2) * Math.PI * 2
-    const r = Math.sqrt(1 - u * u)
     const warm = hash01('sky' + i, 3)
     return {
-      dir: { x: r * Math.cos(a), y: u, z: r * Math.sin(a) },
-      size: 0.5 + Math.pow(hash01('sky' + i, 4), 3) * 1.6,
-      seed: hash01('sky' + i, 5) * 10,
-      tint: warm < 0.18 ? [255, 205, 170] : warm > 0.82 ? [180, 210, 255] : [245, 245, 250],
+      x: hash01('sky' + i, 1),
+      y: hash01('sky' + i, 2),
+      size: 0.5 + Math.pow(hash01('sky' + i, 4), 3) * 1.4,
+      tint: warm < 0.18 ? [255, 205, 170] : warm > 0.82 ? [180, 210, 255] : [235, 240, 250],
+      alpha: 0.1 + hash01('sky' + i, 5) * 0.3,
     }
   })
 }
 
 export interface Dust {
+  /** Angle and distance from the cloud centre, in cloud radii, and a depth for the sway (like a node's). */
+  angle: number
   r: number
-  a0: number
-  y: number
+  zr: number
   size: number
   alpha: number
 }
 
-/** Decorative spiral-arm dust in world space; it orbits the centre with differential rotation. */
+/** Faint specks around the cloud; they sway with it, which gives the scene depth. */
 export function makeDust(count: number): Dust[] {
-  return Array.from({ length: count }, (_, i) => {
-    const arm = i % 3
-    const r = 30 + 520 * Math.pow(hash01('dust' + i, 1), 0.7)
-    const a = r * 0.011 + (arm * Math.PI * 2) / 3 + (hash01('dust' + i, 2) - 0.5) * (0.9 + r * 0.0012)
-    return { r, a0: a, y: (hash01('dust' + i, 3) - 0.5) * 22 * (1 + r / 300), size: 0.6 + hash01('dust' + i, 4) * 1.2, alpha: 0.06 + hash01('dust' + i, 5) * 0.2 }
-  })
+  return Array.from({ length: count }, (_, i) => ({
+    angle: hash01('dust' + i, 1) * Math.PI * 2,
+    r: 0.3 + 2.1 * Math.pow(hash01('dust' + i, 2), 0.8),
+    zr: hash01('dust' + i, 3) * 2 - 1,
+    size: 0.6 + hash01('dust' + i, 4) * 1.1,
+    alpha: 0.04 + hash01('dust' + i, 5) * 0.14,
+  }))
 }
 
 export const easeInOut = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2)
 
-export interface Fly {
-  from: { target: V3; dist: number }
-  to: { target: V3; dist: number }
-  t0: number
-  dur: number
+/**
+ * The quiet backdrop behind the cloud, painted once per size and theme: near-black, a soft glow in the middle,
+ * faint gas clouds and distant stars. The graph is always drawn on a dark sky, in both themes.
+ */
+export function paintBackdrop(w: number, h: number, dpr: number, pal: Palette, sky: Sky[], compact: boolean): HTMLCanvasElement {
+  const bg = document.createElement('canvas')
+  bg.width = Math.max(2, Math.round(w * dpr))
+  bg.height = Math.max(2, Math.round(h * dpr))
+  const g = bg.getContext('2d')!
+  g.scale(dpr, dpr)
+  const [ar, ag, ab] = pal.accent
+  const base = g.createRadialGradient(w * 0.5, h * 0.5, 0, w * 0.5, h * 0.5, Math.max(w, h) * 0.75)
+  base.addColorStop(0, `rgb(${Math.round(ar * 0.03 + 8)},${Math.round(ag * 0.03 + 11)},${Math.round(ab * 0.03 + 15)})`)
+  base.addColorStop(0.6, 'rgb(5,7,11)')
+  base.addColorStop(1, 'rgb(2,3,6)')
+  g.fillStyle = base
+  g.fillRect(0, 0, w, h)
+  const glow = g.createRadialGradient(w * 0.5, h * 0.52, 0, w * 0.5, h * 0.52, Math.max(w, h) * 0.55)
+  glow.addColorStop(0, 'rgba(18,52,64,0.42)')
+  glow.addColorStop(1, 'rgba(18,52,64,0)')
+  g.fillStyle = glow
+  g.fillRect(0, 0, w, h)
+  g.imageSmoothingEnabled = true
+  g.imageSmoothingQuality = 'high'
+  g.globalAlpha = compact ? 0.18 : 0.26
+  g.drawImage(nebula(pal.accent), 0, 0, w, h)
+  for (const s of sky) {
+    g.globalAlpha = s.alpha
+    g.fillStyle = `rgb(${s.tint[0]},${s.tint[1]},${s.tint[2]})`
+    g.fillRect(s.x * w, s.y * h, s.size, s.size)
+  }
+  g.globalAlpha = 1
+  return bg
 }
-
 
 // ---- nebula background ----
 
@@ -188,7 +219,7 @@ let nebulaCache: { key: string; canvas: HTMLCanvasElement } | null = null
  * Faint gas clouds behind the stars, in two cool tones and the accent. Painted once at low resolution and
  * scaled up, so the browser's smoothing turns the pixels into soft clouds for free.
  */
-export function nebula(accent: RGB): HTMLCanvasElement {
+function nebula(accent: RGB): HTMLCanvasElement {
   const key = accent.join(',')
   if (nebulaCache?.key === key) return nebulaCache.canvas
   const c = document.createElement('canvas')
@@ -228,51 +259,11 @@ export function nebula(accent: RGB): HTMLCanvasElement {
   return c
 }
 
-// ---- bloom ----
-
-const BLOOM_SCALE = 0.25
-
-/**
- * Soft glow around everything bright: shrink the frame drawn so far to a quarter, then lay it back over itself,
- * enlarged and added. Shrinking and enlarging blurs it; adding makes bright spots bleed light.
- */
-export function bloom(g: CanvasRenderingContext2D, source: HTMLCanvasElement, scratch: HTMLCanvasElement, w: number, h: number, strength: number) {
-  const sw = Math.max(2, Math.round(w * BLOOM_SCALE))
-  const sh = Math.max(2, Math.round(h * BLOOM_SCALE))
-  if (scratch.width !== sw || scratch.height !== sh) {
-    scratch.width = sw
-    scratch.height = sh
-  }
-  const s = scratch.getContext('2d')!
-  s.globalCompositeOperation = 'copy'
-  s.imageSmoothingEnabled = true
-  s.imageSmoothingQuality = 'low'
-  s.drawImage(source, 0, 0, sw, sh)
-  g.save()
-  g.setTransform(1, 0, 0, 1, 0, 0)
-  g.globalCompositeOperation = 'lighter'
-  g.globalAlpha = strength
-  g.imageSmoothingEnabled = true
-  g.imageSmoothingQuality = 'high'
-  g.drawImage(scratch, 0, 0, source.width, source.height)
-  g.restore()
-}
-
-// ---- bonds and labels ----
-
-/** Control point for a gently curved bond: bends sideways by a share of its length, direction from its seed. */
-export function bendPoint(ax: number, ay: number, bx: number, by: number, seed: number): { x: number; y: number } {
-  const mx = (ax + bx) / 2
-  const my = (ay + by) / 2
-  const dx = bx - ax
-  const dy = by - ay
-  const bend = (seed < 0.5 ? -1 : 1) * (0.08 + seed * 0.06)
-  return { x: mx - dy * bend, y: my + dx * bend }
-}
+// ---- labels ----
 
 /** Label on a small dark pill with a hairline in the star's color, readable over any part of the sky. */
 export function drawLabelPill(g: CanvasRenderingContext2D, text: string, x: number, y: number, size: number, tint: RGB, strong: boolean) {
-  g.font = `${strong ? 650 : 520} ${size}px Inter, system-ui, sans-serif`
+  g.font = pillFont(size, strong)
   const tw = g.measureText(text).width
   const padX = pillPadX(size)
   const height = pillHeight(size)
@@ -289,6 +280,66 @@ export function drawLabelPill(g: CanvasRenderingContext2D, text: string, x: numb
   g.textBaseline = 'middle'
   g.fillText(text, x, y + height / 2 + 0.5)
   return { x0: left, x1: left + tw + padX * 2, y0: y, y1: y + height }
+}
+
+/** Font of a label pill; label placement measures with the same font so its boxes match the drawn pills. */
+export const pillFont = (size: number, strong: boolean) => `${strong ? 650 : 520} ${size}px Inter, system-ui, sans-serif`
+export const regionFont = (size: number) => `700 ${size}px Inter, system-ui, sans-serif`
+
+/** A region's name: bold capitals in its colour with a dark outline, centred on (x, y). */
+export function drawRegionName(g: CanvasRenderingContext2D, text: string, x: number, y: number, size: number, tint: RGB) {
+  g.font = regionFont(size)
+  g.textAlign = 'center'
+  g.textBaseline = 'middle'
+  g.lineJoin = 'round'
+  g.lineWidth = 3
+  g.strokeStyle = 'rgba(3,5,10,0.85)'
+  g.strokeText(text, x, y)
+  g.fillStyle = `rgb(${Math.round(tint[0] + (255 - tint[0]) * 0.25)},${Math.round(tint[1] + (255 - tint[1]) * 0.25)},${Math.round(tint[2] + (255 - tint[2]) * 0.25)})`
+  g.fillText(text, x, y)
+}
+
+/** Item kinds by shape: dot note, ring web page, double ring PDF, cross prompt, square file. */
+export function drawItemShape(g: CanvasRenderingContext2D, type: GraphNode['itemType'], x: number, y: number, r: number, col: RGB) {
+  const solid = `rgb(${col[0]},${col[1]},${col[2]})`
+  if (type === 'web' || type === 'pdf') {
+    g.lineWidth = Math.max(1, r * 0.38)
+    g.strokeStyle = solid
+    g.beginPath()
+    g.arc(x, y, r, 0, Math.PI * 2)
+    g.stroke()
+    if (type === 'pdf') {
+      g.lineWidth = Math.max(0.8, r * 0.22)
+      g.beginPath()
+      g.arc(x, y, r * 1.75, 0, Math.PI * 2)
+      g.stroke()
+    }
+    return
+  }
+  if (type === 'file') {
+    g.fillStyle = solid
+    g.fillRect(x - r * 0.85, y - r * 0.85, r * 1.7, r * 1.7)
+    return
+  }
+  if (type === 'prompt') {
+    g.lineWidth = Math.max(1, r * 0.42)
+    g.strokeStyle = solid
+    g.beginPath()
+    g.moveTo(x - r * 1.5, y)
+    g.lineTo(x + r * 1.5, y)
+    g.moveTo(x, y - r * 1.5)
+    g.lineTo(x, y + r * 1.5)
+    g.stroke()
+    return
+  }
+  g.fillStyle = solid
+  g.beginPath()
+  g.arc(x, y, r, 0, Math.PI * 2)
+  g.fill()
+  g.fillStyle = 'rgba(255,252,248,0.95)'
+  g.beginPath()
+  g.arc(x, y, Math.max(0.6, r * 0.42), 0, Math.PI * 2)
+  g.fill()
 }
 
 // ---- selection ripple ----

@@ -167,20 +167,3 @@ export function renameWikiLinks(content: string, oldTitle: string, newTitle: str
   const esc = oldTitle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   return content.replace(new RegExp(`\\[\\[\\s*${esc}\\s*((?:[#|][^\\]]*)?)\\]\\]`, 'gi'), `[[${newTitle}$1]]`)
 }
-
-/** Node plus its direct neighbours (the "local graph" shown next to a note). */
-export function neighborhood(graph: GraphData, id: string): GraphData {
-  const keep = new Set([id])
-  for (const e of graph.edges) {
-    if (e.source === id) keep.add(e.target)
-    if (e.target === id) keep.add(e.source)
-  }
-  const edges = graph.edges.filter((e) => keep.has(e.source) && keep.has(e.target))
-  const nodes = graph.nodes.filter((n) => keep.has(n.id)).map((n) => ({ ...n, degree: 0 }))
-  const map = new Map(nodes.map((n) => [n.id, n]))
-  for (const e of edges) {
-    map.get(e.source)!.degree++
-    map.get(e.target)!.degree++
-  }
-  return { nodes, edges }
-}

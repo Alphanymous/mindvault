@@ -220,7 +220,7 @@ input[type='range']::-webkit-slider-thumb {
 /* side panels */
 .panel { border-radius: var(--r-lg); }
 .panel h4 { font-size: 11px; line-height: 16px; font-weight: 700; }
-.mini-graph, .pdf-scroll { background: var(--well); border-radius: var(--r-md); }
+.pdf-scroll { background: var(--well); border-radius: var(--r-md); }
 
 /* ---------- search palette ---------- */
 .palette { border-radius: var(--r-xl); width: min(660px, 100%); }

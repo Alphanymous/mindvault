@@ -1,43 +1,59 @@
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef } from 'react'
-import {
-  DEFAULT_CAMERA,
-  DEFAULT_PHYSICS,
-  basisOf,
-  clamp,
-  createSystem,
-  fitCamera,
-  focalLength,
-  hitTest,
-  project,
-  stepSystem,
-  unproject,
-  warmUp,
-  type Camera,
-  type Projected,
-  type Star,
-  type System,
-  type V3,
-} from '../core/galaxy'
-import { buildRegions, regionOf, regionRgb, type Region } from '../core/clusters'
+import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react'
+import { createCloudLayout, type CloudLayout } from '../core/cloudLayout'
+import { regionHue, regionRgb } from '../core/clusters'
+import { hash01 } from '../core/hash'
 import type { GraphData, GraphNode } from '../core/types'
-import { bendPoint, bloom, drawLabelPill, drawRipple, easeInOut, glowSprite, hazeSprite, makeDust, makeSky, nebula, readPalette, starColor, type Dust, type Fly, type Palette, type RGB, type Sky } from './graphFx'
-
-/** How long the ripple after selecting a star lasts, and how strong the glow around bright stars is. */
-const RIPPLE_MS = 1100
-const BLOOM_STRENGTH = 0.42
+import {
+  AMBIENT_LIMIT,
+  LITE_LIMIT,
+  centreOn,
+  cloudStats,
+  fitView,
+  lookOf,
+  newPlaced,
+  pick,
+  place,
+  placePoint,
+  regionDepth,
+  sizeOf,
+  swayAngle,
+  unplace,
+  type CloudStats,
+  type Look,
+  type Placed,
+  type View,
+} from './cloudGeometry'
+import { LABEL_SIZE, labelRequests } from './cloudLabelRules'
+import { placeLabels, type PlacedLabel } from './graphLabels'
+import {
+  drawItemShape,
+  drawLabelPill,
+  drawRegionName,
+  drawRipple,
+  easeInOut,
+  glowSprite,
+  hazeSprite,
+  kindColor,
+  makeDust,
+  makeSky,
+  paintBackdrop,
+  pillFont,
+  readPalette,
+  regionFont,
+  type Dust,
+  type Palette,
+  type RGB,
+} from './graphFx'
 
 export interface GraphHandle {
   zoomBy(factor: number): void
   fit(): void
   focusSelected(): void
-  /** Turn the slow galactic rotation of the camera on or off; returns the new state. */
+  /** Turn the slow sway of the cloud on or off; returns the new state. */
   toggleSpin(): boolean
-  /** Fly the camera to a region (top-level folder). */
+  /** Fly to a region's patch of the cloud (top-level folder). */
   focusRegion(name: string): void
 }
-
-/** Small previews of a big graph sit closer: the outer stars may leave the frame, the core fills it. */
-const compactZoom = (stars: number) => (stars > 25 ? 0.62 : 1)
 
 interface Props {
   data: GraphData
@@ -47,735 +63,719 @@ interface Props {
   compact?: boolean
   /** Ids that match the search: they stay bright, everything else dims. Null when not searching. */
   highlight?: Set<string> | null
+  /** Cloud (default) or Atlas. Atlas arrives with graphAtlas.ts; until then both draw the cloud. */
+  view?: 'cloud' | 'atlas'
+}
+
+const RIPPLE_MS = 1100
+const TAP_MS = 380
+const SIGNALS = 24
+/** Floating panels a label must never sit under, looked up in the page around the canvas. */
+const PANELS = '.graph-search-wrap, .atlas, .graph-settings, .graph-panel, .graph-card, .graph-zoom, .graph-options-btn, .galaxy-cta'
+/** Each label size has one font, so placement measures what drawLabelPill / drawRegionName draw. */
+const fontForSize = (size: number) =>
+  size === LABEL_SIZE.region ? regionFont(size) : pillFont(size, size === LABEL_SIZE.strong || size === LABEL_SIZE.hub)
+
+interface EdgeGroup { css: string; link: boolean; pairs: number[] }
+interface Box { x: number; y: number; w: number; h: number }
+
+/** Everything the frame loop reads and writes, kept outside React state so frames never re-render. */
+interface Scene {
+  layout: CloudLayout
+  looks: Look[]
+  colors: RGB[]
+  regionOfNode: Int32Array
+  regionNames: string[]
+  regionColors: RGB[]
+  neighbours: number[][]
+  edgeGroups: EdgeGroup[]
+  placed: Placed
+  order: number[]
+  stats: CloudStats
+  angle: number
+  highlight: Set<number> | null
+  /** Id last seen in props (undefined before the first), and its index. */
+  selectedId: string | null | undefined
+  selected: number
+  hover: number
+  view: View
+  fitScale: number
+  autoFit: boolean
+  fitted: boolean
+  flight: { from: View; to: View; t0: number; dur: number } | null
+  spin: boolean
+  amp: number
+  reveal: { zoom: boolean } | null
+  ripple: { idx: number; t0: number } | null
+  signals: { edge: number; t: number; speed: number; cycle: number }[]
+  settledReported: boolean
+  /** Screen positions are current for this layout (false until its first frame is drawn). */
+  drawn: boolean
+}
+
+type DevWindow = Window & { __graphSettledAt?: number; __graphLabels?: PlacedLabel[]; __graphNodes?: () => { id: string; label: string; x: number; y: number; r: number }[] }
+
+function emptyScene(): Scene {
+  return {
+    layout: createCloudLayout({ nodes: [], edges: [] }),
+    looks: [], colors: [], regionOfNode: new Int32Array(0), regionNames: [], regionColors: [], neighbours: [], edgeGroups: [],
+    placed: newPlaced(0), order: [], stats: { mx: 0, my: 0, radius: 1 }, angle: 0,
+    highlight: null, selectedId: undefined, selected: -1, hover: -1,
+    view: { x: 0, y: 0, scale: 1 }, fitScale: 1, autoFit: true, fitted: false, flight: null,
+    spin: true, amp: 0, reveal: null, ripple: null, signals: [], settledReported: false, drawn: false,
+  }
 }
 
 export const GraphCanvas = forwardRef<GraphHandle, Props>(function GraphCanvas({ data, selectedId, onSelect, onOpen, compact, highlight }, ref) {
   const wrapRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const sysRef = useRef<System>(createSystem({ nodes: [], edges: [] }))
-  const camRef = useRef<Camera>({ ...DEFAULT_CAMERA })
+  const sceneRef = useRef<Scene>(emptyScene())
   const sizeRef = useRef({ w: 300, h: 300, dpr: 1 })
   const paletteRef = useRef<Palette | null>(null)
-  const bgRef = useRef<HTMLCanvasElement | null>(null)
-  const skyRef = useRef<Sky[]>(makeSky(compact ? 70 : 420))
-  const dustRef = useRef<Dust[]>(makeDust(compact ? 140 : 720))
-  const hoverRef = useRef<number>(-1)
-  const regionsRef = useRef<Region[]>([])
-  const regionColors = useRef(new Map<string, RGB>())
-  const selectedRef = useRef<number>(-1)
-  const followRef = useRef<number>(-1)
-  const flyRef = useRef<Fly | null>(null)
-  const spinRef = useRef(true)
-  const idleSince = useRef(performance.now())
-  const motion = useRef({ yawV: 0, pitchV: 0 })
-  const lowQuality = useRef(false)
-  const propsRef = useRef({ onSelect, onOpen, compact: !!compact })
-  propsRef.current = { onSelect, onOpen, compact: !!compact }
-  const introRef = useRef<{ t0: number; from: number } | null>(null)
-  const calm = useRef(typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches)
-  const highlightRef = useRef<Set<string> | null>(null)
-  highlightRef.current = highlight && highlight.size ? highlight : highlight ? new Set() : null
-  const rippleRef = useRef<{ idx: number; t0: number } | null>(null)
-  const bloomScratch = useRef<HTMLCanvasElement | null>(null)
+  const propsRef = useRef({ onSelect, onOpen, compact: !!compact, selectedId, highlight })
+  propsRef.current = { onSelect, onOpen, compact: !!compact, selectedId, highlight }
+  const calm = useRef(typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches).current
+  /** Ask for a redraw; restarts the frame loop if it had stopped. Set by the render-loop effect. */
+  const kickRef = useRef<(stale?: boolean) => void>(() => {})
+  /** Floating panels over the canvas, in canvas coordinates; read by the frame loop when the page changes. */
+  const obstaclesRef = useRef<Box[]>([])
 
-  const touch = useCallback(() => {
-    idleSince.current = performance.now()
-  }, [])
+  /** Colours and edge groups depend on the data and on the theme (tags and unwritten links use theme colours). */
+  const restyle = () => {
+    const sc = sceneRef.current
+    const pal = (paletteRef.current ??= readPalette())
+    const names = new Map<string, number>()
+    sc.regionOfNode = Int32Array.from(sc.layout.nodes, (n) => {
+      if (!n.region) return -1
+      if (!names.has(n.region)) names.set(n.region, names.size)
+      return names.get(n.region)!
+    })
+    sc.regionNames = [...names.keys()]
+    sc.regionColors = sc.regionNames.map((r) => regionRgb(regionHue(r)))
+    sc.colors = sc.layout.nodes.map((n, i) => (sc.regionOfNode[i] >= 0 ? sc.regionColors[sc.regionOfNode[i]] : kindColor(pal, n.node)))
+    // Lines take the colour of the node they leave from; direct [[links]] a little brighter.
+    const groups = new Map<string, EdgeGroup>()
+    for (const e of sc.layout.edges) {
+      const c = sc.colors[e.a], link = e.kind === 'link', k = link ? 0.3 : 0
+      const css = `rgb(${Math.round(c[0] + (255 - c[0]) * k)},${Math.round(c[1] + (255 - c[1]) * k)},${Math.round(c[2] + (255 - c[2]) * k)})`
+      const key = css + link
+      let group = groups.get(key)
+      if (!group) groups.set(key, (group = { css, link, pairs: [] }))
+      group.pairs.push(e.a, e.b)
+    }
+    sc.edgeGroups = [...groups.values()]
+  }
 
-  const flyTo = useCallback((target: V3, dist: number, dur = 750) => {
-    const cam = camRef.current
-    flyRef.current = { from: { target: { ...cam.target }, dist: cam.dist }, to: { target: { ...target }, dist }, t0: performance.now(), dur }
-  }, [])
+  const syncHighlight = () => {
+    const sc = sceneRef.current
+    const ids = propsRef.current.highlight
+    sc.highlight = ids ? new Set([...ids].map((id) => sc.layout.index.get(id) ?? -1).filter((i) => i >= 0)) : null
+  }
 
-  const fitView = useCallback(
-    (animate = true) => {
-      const { w, h } = sizeRef.current
-      followRef.current = -1
-      const fit = fitCamera(sysRef.current, camRef.current, w / h)
-      if (propsRef.current.compact) fit.dist *= compactZoom(sysRef.current.stars.length)
-      if (animate) flyTo(fit.target, fit.dist, 900)
-      else camRef.current = { ...camRef.current, target: fit.target, dist: fit.dist }
-    },
-    [flyTo],
-  )
+  const ambientOn = () => !calm && sceneRef.current.layout.nodes.length <= AMBIENT_LIMIT
+
+  /** Frame the cloud; on a wide canvas, beside tall side panels (the open Atlas list, the selected note's card). */
+  const fitTarget = (): View => {
+    const sc = sceneRef.current
+    const { w, h } = sizeRef.current
+    let left = 0, right = 0
+    for (const o of obstaclesRef.current) {
+      if (o.h < h * 0.25) continue
+      if (o.x + o.w / 2 < w / 2) left = Math.max(left, o.x + o.w)
+      else right = Math.max(right, w - o.x)
+    }
+    if (w - left - right < Math.max(420, w * 0.55)) left = right = 0
+    const v = fitView(sc.layout.nodes, sc.looks, cloudStats(sc.layout.nodes), w - left - right, h, sc.spin && ambientOn())
+    if (sc.layout.nodes.length) sc.fitScale = v.scale
+    return { ...v, x: v.x + left }
+  }
+
+  const flyTo = (to: View) => {
+    const sc = sceneRef.current
+    sc.autoFit = false
+    if (calm) sc.view = to
+    else sc.flight = { from: { ...sc.view }, to, t0: -1, dur: 650 }
+    kickRef.current()
+  }
+
+  const scaleLimits = () => {
+    const f = sceneRef.current.fitScale || 1
+    return { min: f * 0.3, max: f * 14 }
+  }
+
+  const zoomAt = (factor: number, px: number, py: number) => {
+    const sc = sceneRef.current
+    const { min, max } = scaleLimits()
+    const scale = Math.max(min, Math.min(max, sc.view.scale * factor)), ratio = scale / sc.view.scale
+    sc.view = { x: px - (px - sc.view.x) * ratio, y: py - (py - sc.view.y) * ratio, scale }
+    sc.autoFit = false
+    sc.flight = null
+    kickRef.current()
+  }
 
   useImperativeHandle(ref, () => ({
-    zoomBy: (f) => {
-      touch()
-      flyRef.current = null
-      camRef.current = { ...camRef.current, dist: clamp(camRef.current.dist / f, 60, 3600) }
+    zoomBy: (factor) => zoomAt(factor, sizeRef.current.w / 2, sizeRef.current.h / 2),
+    fit: () => {
+      const sc = sceneRef.current
+      sc.flight = null
+      sc.autoFit = true
+      sc.fitted = false
+      kickRef.current()
     },
-    fit: () => fitView(true),
     focusSelected: () => {
-      const s = sysRef.current.stars[selectedRef.current]
-      if (s) {
-        followRef.current = s.index
-        flyTo(s.p, Math.min(camRef.current.dist, 300))
-      }
+      const sc = sceneRef.current
+      if (sc.selected < 0) return
+      const { w, h } = sizeRef.current
+      const scale = Math.min(scaleLimits().max, Math.max(sc.view.scale, sc.fitScale * 2))
+      flyTo(centreOn(sc.placed.sx[sc.selected], sc.placed.sy[sc.selected], sc.view, w, h, scale))
     },
     toggleSpin: () => {
-      spinRef.current = !spinRef.current
-      return spinRef.current
+      const sc = sceneRef.current
+      sc.spin = !sc.spin
+      kickRef.current()
+      return sc.spin
     },
     focusRegion: (name) => {
-      const members = sysRef.current.stars.filter((st) => st.node.kind === 'item' && regionOf(st.node) === name)
-      if (!members.length) return
-      const c = members.reduce((acc, st) => ({ x: acc.x + st.p.x / members.length, y: acc.y + st.p.y / members.length, z: acc.z + st.p.z / members.length }), { x: 0, y: 0, z: 0 })
-      const spread = Math.max(...members.map((st) => Math.hypot(st.p.x - c.x, st.p.y - c.y, st.p.z - c.z)))
-      followRef.current = -1
-      flyTo(c, clamp(spread * 3.2 + 120, 160, 900))
+      const sc = sceneRef.current
+      const c = sc.layout.regionCentres().get(name)
+      if (!c) return
+      const { w, h } = sizeRef.current
+      const at = placePoint(c.x, c.y, regionDepth(name), sc.stats, sc.view, sc.angle, sc.amp)
+      const { max } = scaleLimits()
+      const scale = Math.max(sc.fitScale, Math.min(max, (Math.min(w, h) * 0.8) / (2.4 * Math.max(20, c.radius))))
+      flyTo(centreOn(at.x, at.y, sc.view, w, h, scale))
     },
   }))
 
-  // (Re)build the system when the data changes, keeping every surviving star where it was.
-  useEffect(() => {
-    regionsRef.current = buildRegions(data.nodes)
-    regionColors.current = new Map(regionsRef.current.map((r) => [r.name, regionRgb(r.hue)]))
-    const first = sysRef.current.stars.length === 0
-    const sys = createSystem(data, sysRef.current, regionOf)
-    if (first) warmUp(sys, 260)
-    sysRef.current = sys
-    const sel = selectedId ? (sys.index.get(selectedId) ?? -1) : -1
-    selectedRef.current = sel
-    if (first && sys.stars.length) {
-      fitView(false)
-      introRef.current = { t0: performance.now(), from: camRef.current.dist * 2.1 }
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data])
-
-  // Selecting something (here or from outside) swoops the camera to it and keeps it in view.
-  useEffect(() => {
-    const idx = selectedId ? (sysRef.current.index.get(selectedId) ?? -1) : -1
-    selectedRef.current = idx
-    if (idx >= 0) {
-      const s = sysRef.current.stars[idx]
-      rippleRef.current = { idx, t0: performance.now() }
-      followRef.current = idx
-      flyTo(s.p, clamp(camRef.current.dist, 160, propsRef.current.compact ? 420 : 380))
-    } else {
-      followRef.current = -1
-    }
-  }, [selectedId, flyTo])
-
-  // Canvas size, background, palette, and the render loop.
+  // Canvas size, backdrop, palette, the frame loop and pointer input. Declared first, so the size is known
+  // before the first layout is framed.
   useEffect(() => {
     const wrap = wrapRef.current!
     const canvas = canvasRef.current!
     const ctx = canvas.getContext('2d')!
+    const isCompact = () => propsRef.current.compact
+    const sky = makeSky(isCompact() ? 60 : 260)
+    const dust: Dust[] = makeDust(isCompact() ? 70 : 240)
+    let backdrop: HTMLCanvasElement | null = null
     let raf = 0
-    let last = performance.now()
-    let acc = 0
-    let visible = true
     let alive = true
-    const quality = { frame: 16 }
+    let visible = true
+    let dirty = true
+    let lastDraw = -Infinity
+    let lastFrame = 0
+    let slowFrames = 0
+    let drawMs = 0
+    let obstaclesStale = true
+    const widths = new Map<string, number>()
 
-    const paintBackground = () => {
-      const { w, h } = sizeRef.current
-      const pal = (paletteRef.current ??= readPalette())
-      const pad = 160
-      const bg = document.createElement('canvas')
-      bg.width = Math.max(2, Math.round(w) + pad)
-      bg.height = Math.max(2, Math.round(h) + pad)
-      const g = bg.getContext('2d')!
-      const [ar, ag, ab] = pal.accent
-      const base = g.createRadialGradient(bg.width * 0.5, bg.height * 0.46, 0, bg.width * 0.5, bg.height * 0.5, Math.max(bg.width, bg.height) * 0.75)
-      base.addColorStop(0, `rgb(${Math.round(ar * 0.04 + 9)},${Math.round(ag * 0.04 + 12)},${Math.round(ab * 0.04 + 16)})`)
-      base.addColorStop(0.6, 'rgb(5,8,11)')
-      base.addColorStop(1, 'rgb(2,4,6)')
-      g.fillStyle = base
-      g.fillRect(0, 0, bg.width, bg.height)
-      // soft dust clouds, tinted by the palette and a cool counterpoint
-      const clouds: [number, number, number, RGB, number][] = [
-        [0.3, 0.38, 0.5, [60, 110, 140], 0.07],
-        [0.72, 0.6, 0.55, pal.accent, 0.04],
-      ]
-      for (const [fx, fy, fr, col, a] of clouds) {
-        const cg = g.createRadialGradient(bg.width * fx, bg.height * fy, 0, bg.width * fx, bg.height * fy, Math.max(bg.width, bg.height) * fr)
-        cg.addColorStop(0, `rgba(${col[0]},${col[1]},${col[2]},${a})`)
-        cg.addColorStop(1, `rgba(${col[0]},${col[1]},${col[2]},0)`)
-        g.fillStyle = cg
-        g.fillRect(0, 0, bg.width, bg.height)
-      }
-      g.imageSmoothingEnabled = true
-      g.imageSmoothingQuality = 'high'
-      g.globalAlpha = propsRef.current.compact ? 0.35 : 0.5
-      g.drawImage(nebula(pal.accent), 0, 0, bg.width, bg.height)
-      g.globalAlpha = 1
-      bgRef.current = bg
+    const kick = (stale = false) => {
+      dirty = true
+      if (stale) obstaclesStale = true
+      if (!raf && alive) raf = requestAnimationFrame(frame)
     }
+    kickRef.current = kick
 
+    const repaint = () => {
+      const { w, h, dpr } = sizeRef.current
+      backdrop = paintBackdrop(w, h, dpr, (paletteRef.current ??= readPalette()), sky, isCompact())
+    }
     const resize = () => {
       const r = wrap.getBoundingClientRect()
       const dpr = Math.min(window.devicePixelRatio || 1, 2)
       sizeRef.current = { w: Math.max(40, r.width), h: Math.max(40, r.height), dpr }
       canvas.width = Math.round(sizeRef.current.w * dpr)
       canvas.height = Math.round(sizeRef.current.h * dpr)
-      paintBackground()
+      repaint()
+      const sc = sceneRef.current
+      if (sc.autoFit) sc.fitted = false
+      kick(true)
     }
     resize()
     const ro = new ResizeObserver(resize)
     ro.observe(wrap)
-    const mo = new MutationObserver(() => {
+    const theme = new MutationObserver(() => {
       paletteRef.current = readPalette()
-      paintBackground()
+      repaint()
+      restyle()
+      kick()
     })
-    mo.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'data-palette'] })
-    paletteRef.current = readPalette()
-    paintBackground()
-    const io = new IntersectionObserver((e) => (visible = e.some((x) => x.isIntersecting)))
+    theme.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'data-palette'] })
+    // Panels opening, closing or moving: labels must keep clear of them.
+    const page = wrap.parentElement ?? wrap
+    const panels = new MutationObserver(() => kick(true))
+    panels.observe(page, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] })
+    const io = new IntersectionObserver((e) => {
+      visible = e.some((x) => x.isIntersecting)
+      if (visible) kick()
+    })
     io.observe(wrap)
+    const onVisibility = () => document.visibilityState === 'visible' && kick()
+    document.addEventListener('visibilitychange', onVisibility)
+    // Label widths are cached; a web font arriving late changes them.
+    const onFonts = () => {
+      widths.clear()
+      kick()
+    }
+    document.fonts?.addEventListener('loadingdone', onFonts)
 
-    const frame = (now: number) => {
-      raf = requestAnimationFrame(frame)
-      if (!alive || !visible || document.visibilityState === 'hidden') {
-        last = now
-        return
+    const readObstacles = () => {
+      const cr = canvas.getBoundingClientRect()
+      obstaclesRef.current = [...page.querySelectorAll(PANELS)].flatMap((el) => {
+        const r = el.getBoundingClientRect()
+        return r.width && r.height ? [{ x: r.left - cr.left, y: r.top - cr.top, w: r.width, h: r.height }] : []
+      })
+      obstaclesStale = false
+    }
+    const measure = (text: string, size: number) => {
+      const key = size + '|' + text
+      let width = widths.get(key)
+      if (width === undefined) {
+        if (widths.size > 4000) widths.clear()
+        ctx.font = fontForSize(size)
+        width = ctx.measureText(text).width
+        widths.set(key, width)
       }
-      const compactMode = propsRef.current.compact
-      if (compactMode && now - last < 30) return // the little graph is drawn at ~30 fps
-      const started = performance.now()
-      const dt = Math.min(0.05, (now - last) / 1000)
-      last = now
-      const sys = sysRef.current
-      const cam = camRef.current
-
-      // physics in fixed steps
-      acc += dt
-      let steps = 0
-      while (acc >= 1 / 60 && steps < 3) {
-        stepSystem(sys, 1 / 60, calm.current ? { ...DEFAULT_PHYSICS, swirl: 0.25, orbit: 0.3 } : DEFAULT_PHYSICS)
-        acc -= 1 / 60
-        steps++
-      }
-      if (steps === 3) acc = 0
-
-      // camera: fly-to, follow, inertia, idle spin, intro
-      if (introRef.current) {
-        const t = Math.min(1, (now - introRef.current.t0) / 1800)
-        const target = flyRef.current ? flyRef.current.to.dist : fitCamera(sys, cam, sizeRef.current.w / sizeRef.current.h).dist * (propsRef.current.compact ? compactZoom(sys.stars.length) : 1)
-        if (!flyRef.current) cam.dist = introRef.current.from + (target - introRef.current.from) * easeInOut(t)
-        if (t >= 1 || flyRef.current) introRef.current = null
-      }
-      const fly = flyRef.current
-      if (fly) {
-        const t = Math.min(1, (now - fly.t0) / fly.dur)
-        const e = easeInOut(t)
-        cam.target = { x: fly.from.target.x + (fly.to.target.x - fly.from.target.x) * e, y: fly.from.target.y + (fly.to.target.y - fly.from.target.y) * e, z: fly.from.target.z + (fly.to.target.z - fly.from.target.z) * e }
-        cam.dist = fly.from.dist + (fly.to.dist - fly.from.dist) * e
-        if (t >= 1) flyRef.current = null
-      } else if (followRef.current >= 0 && sys.stars[followRef.current]) {
-        const p = sys.stars[followRef.current].p
-        const k = 1 - Math.pow(0.001, dt)
-        cam.target = { x: cam.target.x + (p.x - cam.target.x) * k, y: cam.target.y + (p.y - cam.target.y) * k, z: cam.target.z + (p.z - cam.target.z) * k }
-      }
-      const m = motion.current
-      cam.yaw += m.yawV * dt * 60
-      cam.pitch = clamp(cam.pitch + m.pitchV * dt * 60, -1.45, 1.45)
-      m.yawV *= Math.pow(0.9, dt * 60)
-      m.pitchV *= Math.pow(0.9, dt * 60)
-      const idle = now - idleSince.current > (propsRef.current.compact ? 800 : 5000)
-      if (spinRef.current && idle && !calm.current) cam.yaw += dt * (propsRef.current.compact ? 0.22 : 0.07)
-
-      draw(ctx, now)
-      quality.frame = quality.frame * 0.9 + (performance.now() - started) * 0.1
-      lowQuality.current = quality.frame > 22
+      return width
     }
 
-    const draw = (g: CanvasRenderingContext2D, now: number) => {
+    function frame(now: number) {
+      raf = 0
+      if (!alive || !visible || document.visibilityState === 'hidden') return
+      const sc = sceneRef.current
+      const ambient = ambientOn()
+      const dt = Math.min(0.1, Math.max(0, (now - lastFrame) / 1000))
+      lastFrame = now
+      let busy = false
+      if (obstaclesStale) readObstacles()
+
+      if (!sc.layout.settled) {
+        // While the cloud unfolds the layout gets most of each frame; more when drawing is slow (big vaults, phones).
+        const stop = performance.now() + (isCompact() ? 6 : drawMs > 16 ? 14 : 9)
+        do sc.layout.tick()
+        while (!sc.layout.settled && performance.now() < stop)
+        busy = dirty = true
+      }
+      if (sc.layout.settled && !sc.settledReported) {
+        sc.settledReported = true
+        fitTarget()
+        if (import.meta.env.DEV) (window as DevWindow).__graphSettledAt = performance.now()
+      }
+
+      // The sway fades in and out instead of jumping when it is switched.
+      const swayTo = sc.spin && ambient ? 1 : 0
+      if (sc.amp !== swayTo) {
+        sc.amp = swayTo > sc.amp ? Math.min(1, sc.amp + dt * 0.8) : Math.max(0, sc.amp - dt * 0.8)
+        busy = dirty = true
+      }
+
+      if (sc.autoFit && !sc.fitted) {
+        const to = fitTarget()
+        const v = sc.view
+        if (calm) sc.view = to
+        else sc.view = { x: v.x + (to.x - v.x) * 0.2, y: v.y + (to.y - v.y) * 0.2, scale: v.scale + (to.scale - v.scale) * 0.2 }
+        const close = Math.abs(to.x - sc.view.x) < 0.5 && Math.abs(to.y - sc.view.y) < 0.5 && Math.abs(to.scale - sc.view.scale) < to.scale * 0.002
+        if (sc.layout.settled && close) {
+          sc.view = to
+          sc.fitted = true
+        }
+        busy = dirty = true
+      }
+      if (sc.flight) {
+        const fl = sc.flight
+        if (fl.t0 < 0) fl.t0 = now
+        const t = Math.min(1, (now - fl.t0) / fl.dur), e = easeInOut(t)
+        sc.view = { x: fl.from.x + (fl.to.x - fl.from.x) * e, y: fl.from.y + (fl.to.y - fl.from.y) * e, scale: fl.from.scale + (fl.to.scale - fl.from.scale) * e }
+        if (t >= 1) sc.flight = null
+        busy = dirty = true
+      }
+      if (sc.reveal && sc.layout.settled && (sc.fitted || !sc.autoFit) && !sc.flight && sc.drawn) reveal()
+
+      // After settling only the sway, drift and pulses move, at about 30 frames a second (25 in the preview).
+      const animating = ambient || (!!sc.ripple && !calm)
+      const interval = isCompact() ? 40 : 33
+      // Unfolding: when a frame is costly to draw, draw less often so the layout settles sooner.
+      const due = sc.layout.settled || now - lastDraw >= Math.min(150, drawMs * 2)
+      if (due && (dirty || (animating && now - lastDraw >= interval - 2))) {
+        const started = performance.now()
+        draw(now)
+        const spent = performance.now() - started
+        drawMs = drawMs * 0.7 + spent * 0.3
+        slowFrames = spent > 22 ? Math.min(30, slowFrames + 1) : Math.max(0, slowFrames - 1)
+        dirty = false
+        lastDraw = now
+      }
+      if (busy || animating || dirty) raf = requestAnimationFrame(frame)
+    }
+
+    /** A selected note that sits off screen or under a panel is brought to the middle; "Open in graph" also zooms in. */
+    function reveal() {
+      const sc = sceneRef.current
+      const r = sc.reveal!
+      sc.reveal = null
+      const i = sc.selected
+      if (i < 0) return
+      const { w, h } = sizeRef.current
+      const x = sc.placed.sx[i], y = sc.placed.sy[i]
+      const inset = 48
+      const hidden = x < inset || y < inset || x > w - inset || y > h - inset || obstaclesRef.current.some((o) => x > o.x - 12 && x < o.x + o.w + 12 && y > o.y - 12 && y < o.y + o.h + 12)
+      if (!r.zoom && !hidden) return
+      const scale = r.zoom ? Math.min(scaleLimits().max, Math.max(sc.view.scale, sc.fitScale * 1.6)) : sc.view.scale
+      flyTo(centreOn(x, y, sc.view, w, h, scale))
+    }
+
+    function draw(now: number) {
+      const sc = sceneRef.current
       const { w, h, dpr } = sizeRef.current
-      const pal = paletteRef.current!
-      const cam = camRef.current
-      const sys = sysRef.current
-      const basis = basisOf(cam)
-      const compactMode = propsRef.current.compact
+      const g = ctx
       const t = now / 1000
-      g.setTransform(dpr, 0, 0, dpr, 0, 0)
+      const nodes = sc.layout.nodes
+      const count = nodes.length
+      const compactMode = isCompact()
+      const ambient = ambientOn()
+      const low = slowFrames > 8
+      sc.drawn = true
+      sc.stats = cloudStats(nodes)
+      sc.angle = swayAngle(t, sc.amp)
+      if (sc.placed.sx.length !== count) sc.placed = newPlaced(count)
+      place(nodes, sc.looks, sc.stats, sc.view, sc.angle, sc.amp, t, ambient, sc.placed)
+      const { sx, sy, f } = sc.placed
+      const scale = sc.view.scale
+      const zoom = scale / (sc.fitScale || 1)
+      const radius = (i: number) => sizeOf(sc.looks[i], scale, f[i])
+
+      g.setTransform(1, 0, 0, 1, 0, 0)
       g.globalCompositeOperation = 'source-over'
       g.globalAlpha = 1
-      if (bgRef.current) g.drawImage(bgRef.current, -80 + Math.sin(cam.yaw) * 26, -80 + cam.pitch * 30)
+      if (backdrop) g.drawImage(backdrop, 0, 0)
+      else g.clearRect(0, 0, canvas.width, canvas.height)
+      g.setTransform(dpr, 0, 0, dpr, 0, 0)
 
-      // distant stars: rotate with the camera but never move closer
-      const f = focalLength(cam, h)
+      const focus = sc.hover >= 0 ? sc.hover : sc.selected
+      const near = focus >= 0 ? new Set([focus, ...sc.neighbours[focus]]) : null
+      const hl = sc.highlight
+      const dimmed = (i: number) => (!!near && !near.has(i)) || (!!hl && !hl.has(i) && i !== focus)
+
+      // dust: faint specks around the cloud that sway with it
       g.globalCompositeOperation = 'lighter'
-      const sky = skyRef.current
-      const skyCount = lowQuality.current ? sky.length >> 1 : sky.length
-      for (let i = 0; i < skyCount; i++) {
-        const s = sky[i]
-        const zc = s.dir.x * basis.forward.x + s.dir.y * basis.forward.y + s.dir.z * basis.forward.z
-        if (zc < 0.05) continue
-        const xc = s.dir.x * basis.right.x + s.dir.y * basis.right.y + s.dir.z * basis.right.z
-        const yc = s.dir.x * basis.up.x + s.dir.y * basis.up.y + s.dir.z * basis.up.z
-        const sx = w / 2 + (xc / zc) * f
-        const sy = h / 2 - (yc / zc) * f
-        if (sx < -4 || sx > w + 4 || sy < -4 || sy > h + 4) continue
-        const tw = calm.current ? 0.8 : 0.55 + 0.45 * Math.sin(t * (0.8 + s.seed * 0.5) + s.seed * 9)
-        g.fillStyle = `rgba(${s.tint[0]},${s.tint[1]},${s.tint[2]},${(0.22 + s.size * 0.22) * tw})`
-        g.fillRect(sx, sy, s.size, s.size)
-      }
-
-      // project every star once, then paint far to near
-      const proj: Projected[] = sys.stars.map((s) => project(basis, cam, s.p, w, h))
-      const order = sys.stars.map((_, i) => i).filter((i) => proj[i].visible).sort((a, b) => proj[b].depth - proj[a].depth)
-      const focus = hoverRef.current >= 0 ? hoverRef.current : selectedRef.current
-      const near = new Set<number>(focus >= 0 ? [focus, ...sys.neighbors[focus]] : [])
-      const fade = (depth: number) => clamp(1.35 - depth / (cam.dist * 2.3), 0.22, 1)
-      const hlIds = highlightRef.current
-      const hl = hlIds ? new Set(sys.stars.filter((st) => hlIds.has(st.node.id)).map((st) => st.index)) : null
-      const dimmed = (i: number) => (focus >= 0 && !near.has(i)) || (!!hl && !hl.has(i) && i !== focus)
-      const colorOf = (s: Star): RGB => {
-        const region = regionOf(s.node)
-        return (region && regionColors.current.get(region)) || starColor(pal, s)
-      }
-
-      // regions: where each one sits on screen, how spread out it is
-      const agg = new Map<string, { x: number; y: number; n: number; x2: number; y2: number }>()
-      for (const i of order) {
-        const s = sys.stars[i]
-        if (s.node.kind !== 'item') continue
-        const region = regionOf(s.node)
-        if (!region) continue
-        const a = agg.get(region) ?? { x: 0, y: 0, n: 0, x2: 0, y2: 0 }
-        a.x += proj[i].x
-        a.y += proj[i].y
-        a.x2 += proj[i].x * proj[i].x
-        a.y2 += proj[i].y * proj[i].y
-        a.n++
-        agg.set(region, a)
-      }
-      g.globalCompositeOperation = 'lighter'
-      if (!compactMode) {
-        for (const [name, a] of agg) {
-          if (a.n < 2) continue
-          const cx = a.x / a.n
-          const cy = a.y / a.n
-          const spread = Math.sqrt(Math.max(0, a.x2 / a.n - cx * cx + (a.y2 / a.n - cy * cy)))
-          const rad = clamp(spread * 2.1 + 50, 70, 520)
-          const col = regionColors.current.get(name)
-          if (!col) continue
-          g.globalAlpha = focus >= 0 ? 0.3 : 0.6
-          g.drawImage(hazeSprite(col), cx - rad, cy - rad, rad * 2, rad * 2)
+      if (count && !low) {
+        g.fillStyle = 'rgb(190,205,225)'
+        const R = sc.stats.radius
+        for (const d of dust) {
+          const p = placePoint(sc.stats.mx + Math.cos(d.angle) * d.r * R, sc.stats.my + Math.sin(d.angle) * d.r * R, d.zr, sc.stats, sc.view, sc.angle, sc.amp)
+          if (p.x < -4 || p.x > w + 4 || p.y < -4 || p.y > h + 4) continue
+          g.globalAlpha = d.alpha
+          const s = d.size * p.f
+          g.fillRect(p.x, p.y, s, s)
         }
       }
 
-      // spiral dust
-      const dust = dustRef.current
-      const dustCount = lowQuality.current ? dust.length >> 1 : dust.length
-      g.globalAlpha = 1
-      for (let i = 0; i < dustCount; i++) {
-        const d = dust[i]
-        const ang = d.a0 + (calm.current ? 0 : t * 0.045 * (110 / (d.r + 70)))
-        const pr = project(basis, cam, { x: Math.cos(ang) * d.r, y: d.y, z: Math.sin(ang) * d.r }, w, h)
-        if (!pr.visible || pr.x < -4 || pr.x > w + 4 || pr.y < -4 || pr.y > h + 4) continue
-        const k = fade(pr.depth) * d.alpha
-        g.fillStyle = `rgba(190,205,225,${k})`
-        const sz = d.size * clamp(pr.scale * 1.7, 0.6, 2.2)
-        g.fillRect(pr.x, pr.y, sz, sz)
+      // regions: where each lobe sits on screen and how far it reaches; a soft glow in its colour behind it
+      const rn = sc.regionNames.length
+      const ax = new Float64Array(rn), ay = new Float64Array(rn), an = new Float64Array(rn), a2 = new Float64Array(rn)
+      for (let i = 0; i < count; i++) {
+        const r = sc.regionOfNode[i]
+        if (r < 0 || nodes[i].node.kind !== 'item') continue
+        ax[r] += sx[i]; ay[r] += sy[i]; an[r]++
+      }
+      for (let i = 0; i < count; i++) {
+        const r = sc.regionOfNode[i]
+        if (r < 0 || nodes[i].node.kind !== 'item') continue
+        a2[r] += (sx[i] - ax[r] / an[r]) ** 2 + (sy[i] - ay[r] / an[r]) ** 2
+      }
+      const regionsOnScreen: { name: string; x: number; y: number }[] = []
+      for (let r = 0; r < rn; r++) {
+        if (!an[r]) continue
+        const cx = ax[r] / an[r], cy = ay[r] / an[r]
+        const reach = Math.max(28, Math.sqrt(a2[r] / an[r]) * 2.4)
+        if (cx < -reach || cx > w + reach || cy < -reach || cy > h + reach) continue
+        g.globalAlpha = near || hl ? 0.35 : compactMode ? 0.7 : 0.85
+        g.drawImage(hazeSprite(sc.regionColors[r]), cx - reach, cy - reach, reach * 2, reach * 2)
+        if (cx > 0 && cx < w && cy > 0 && cy < h) regionsOnScreen.push({ name: sc.regionNames[r], x: cx, y: cy })
       }
 
-      // bonds: thin lines in the color of the region they leave from, so hubs throw colored fans
+      // edges, one path per colour; those touching the focused node lit
+      const edgeCount = sc.layout.edges.length
+      const quiet = Math.max(0.07, Math.min(0.34, 6 / Math.sqrt(edgeCount + 1)))
+      const width = compactMode ? 0.6 : 0.7
+      const off = (a: number, b: number) =>
+        (sx[a] < -20 && sx[b] < -20) || (sx[a] > w + 20 && sx[b] > w + 20) || (sy[a] < -20 && sy[b] < -20) || (sy[a] > h + 20 && sy[b] > h + 20)
       g.lineCap = 'round'
-      for (const b of sys.bonds) {
-        const A = proj[b.a]
-        const B = proj[b.b]
-        if (!A.visible || !B.visible) continue
-        const lit = focus >= 0 && (b.a === focus || b.b === focus)
-        const dim = (focus >= 0 && !lit) || (!!hl && !hl.has(b.a) && !hl.has(b.b))
-        const depth = (A.depth + B.depth) / 2
-        const base = b.kind === 'link' ? 0.2 : b.kind === 'tag' ? 0.045 : 0.02
-        const alpha = (lit ? 0.9 : dim ? base * 0.2 : base) * fade(depth)
-        const ca = colorOf(sys.stars[b.a])
-        const cb = colorOf(sys.stars[b.b])
-        const mixc = (k: number) => [Math.round(ca[0] + (cb[0] - ca[0]) * k), Math.round(ca[1] + (cb[1] - ca[1]) * k), Math.round(ca[2] + (cb[2] - ca[2]) * k)]
-        const [r, gg, bb] = b.kind === 'link' ? mixc(0.5) : b.kind === 'tag' ? [190, 185, 180] : ca
-        const k = lit ? 0.45 : 0
-        const tone = (c: number[]) => `rgba(${Math.round(c[0] + (255 - c[0]) * k)},${Math.round(c[1] + (255 - c[1]) * k)},${Math.round(c[2] + (255 - c[2]) * k)},${alpha})`
-        if (b.kind === 'link' && !lowQuality.current) {
-          const grad = g.createLinearGradient(A.x, A.y, B.x, B.y)
-          grad.addColorStop(0, tone(ca))
-          grad.addColorStop(1, tone(cb))
-          g.strokeStyle = grad
-        } else {
-          g.strokeStyle = tone([r, gg, bb])
-        }
-        g.lineWidth = (lit ? 1.7 : b.kind === 'link' ? 1 : 0.8) * clamp(Math.min(A.scale, B.scale) * 4.5, 0.55, 1.4)
-        const ctrl = bendPoint(A.x, A.y, B.x, B.y, b.seed)
-        g.beginPath()
-        g.moveTo(A.x, A.y)
-        if (b.kind === 'link') g.quadraticCurveTo(ctrl.x, ctrl.y, B.x, B.y)
-        else g.lineTo(B.x, B.y)
-        g.stroke()
-        if (lit && !calm.current && !lowQuality.current) {
-          const p = (t * 0.42 + b.seed) % 1
-          const dir = b.a === focus ? p : 1 - p
-          g.globalAlpha = 1
-          // a spark travelling along the (possibly curved) bond, away from the focused star
-          const u = 1 - dir
-          const px = b.kind === 'link' ? u * u * A.x + 2 * u * dir * ctrl.x + dir * dir * B.x : A.x + (B.x - A.x) * dir
-          const py = b.kind === 'link' ? u * u * A.y + 2 * u * dir * ctrl.y + dir * dir * B.y : A.y + (B.y - A.y) * dir
-          g.drawImage(glowSprite([r, gg, bb] as RGB, 64), px - 9, py - 9, 18, 18)
+      // 0: ordinary, 1: dimmed (outside the search), 2: lit (touches the focused node)
+      const classOf = (a: number, b: number) => (focus >= 0 && (a === focus || b === focus) ? 2 : hl && !hl.has(a) && !hl.has(b) ? 1 : 0)
+      for (const pass of [0, 1, 2]) {
+        for (const grp of sc.edgeGroups) {
+          let any = false
+          g.beginPath()
+          for (let k = 0; k < grp.pairs.length; k += 2) {
+            const a = grp.pairs[k], b = grp.pairs[k + 1]
+            if (classOf(a, b) !== pass || off(a, b)) continue
+            g.moveTo(sx[a], sy[a])
+            g.lineTo(sx[b], sy[b])
+            any = true
+          }
+          if (!any) continue
+          g.strokeStyle = grp.css
+          if (pass === 2) {
+            g.globalAlpha = 0.9
+            g.lineWidth = width * 2.2
+          } else {
+            const base = grp.link ? (focus >= 0 ? 0.15 : 0.5) : focus >= 0 ? 0.05 : quiet
+            g.globalAlpha = pass === 1 ? base * 0.25 : base
+            g.lineWidth = width * (grp.link ? 1.4 : 1)
+          }
+          g.stroke()
         }
       }
 
-      // stars: color = region, shape = kind of item (dot note, ring web page, double ring PDF, sparkle prompt, square file)
-      for (const i of order) {
-        const s = sys.stars[i]
-        const p = proj[i]
-        const col = colorOf(s)
-        const a = fade(p.depth) * (dimmed(i) ? 0.22 : 1)
-        const rad = Math.max(s.r * p.scale, 1.1)
-        const kind = s.node.kind
-        if (kind === 'folder') {
-          g.globalAlpha = a * 0.4
-          const size = rad * 9
-          g.drawImage(hazeSprite(col), p.x - size, p.y - size, size * 2, size * 2)
-          continue
+      // travelling pulses along connections, like signals passing between notes
+      if (ambient && edgeCount && !compactMode && !low) {
+        const step = Math.min(0.1, Math.max(0, (now - lastDraw) / 1000))
+        if (sc.signals.length !== Math.min(SIGNALS, edgeCount)) {
+          sc.signals = Array.from({ length: Math.min(SIGNALS, edgeCount) }, (_, k) => ({
+            edge: Math.floor(hash01('signal' + k, 1) * edgeCount), t: hash01('signal' + k, 2), speed: 0.12 + hash01('signal' + k, 3) * 0.2, cycle: 0,
+          }))
         }
-        if (kind === 'ghost') {
-          g.globalAlpha = a * 0.7
+        sc.signals.forEach((s, k) => {
+          s.t += s.speed * step
+          if (s.t > 1) {
+            s.t = 0
+            s.cycle++
+            s.edge = Math.floor(hash01(`signal${k}:${s.cycle}`, 1) * edgeCount)
+          }
+          const e = sc.layout.edges[s.edge]
+          if (!e || (near && !(near.has(e.a) && near.has(e.b))) || (hl && !hl.has(e.a) && !hl.has(e.b))) return
+          const x = sx[e.a] + (sx[e.b] - sx[e.a]) * s.t, y = sy[e.a] + (sy[e.b] - sy[e.a]) * s.t
+          g.globalAlpha = 0.85 * Math.sin(Math.PI * s.t)
+          g.drawImage(glowSprite(sc.colors[e.a], 64), x - 4, y - 4, 8, 8)
+        })
+      }
+
+      // nodes, far to near: glows first (added light), then the shapes on top
+      const order = sc.order
+      if (order.length !== count) {
+        order.length = 0
+        for (let i = 0; i < count; i++) order.push(i)
+      }
+      if (sc.amp > 0) order.sort((a, b) => f[a] - f[b])
+      const lite = count > LITE_LIMIT && zoom < 2
+      const visibleNode = (i: number, r: number) => sx[i] > -r * 4 && sx[i] < w + r * 4 && sy[i] > -r * 4 && sy[i] < h + r * 4
+      for (const i of order) {
+        const kind = nodes[i].node.kind
+        if (lite && kind === 'item') continue
+        const r = radius(i)
+        if (!visibleNode(i, r) || (low && kind === 'item' && r < 3 && i !== focus)) continue
+        const halo = r * (kind === 'folder' ? 2.6 : 3.4) * (i === focus ? 1.4 : 1)
+        g.globalAlpha = (dimmed(i) ? 0.15 : 1) * (kind === 'tag' ? 0.5 : 0.8)
+        g.drawImage(glowSprite(sc.colors[i]), sx[i] - halo, sy[i] - halo, halo * 2, halo * 2)
+      }
+      g.globalCompositeOperation = 'source-over'
+      for (const i of order) {
+        const n = nodes[i].node
+        const r = radius(i)
+        if (!visibleNode(i, r)) continue
+        const col = sc.colors[i]
+        g.globalAlpha = dimmed(i) ? 0.15 : 1
+        if (lite && n.kind === 'item') {
+          const side = Math.max(1.6, r)
+          g.fillStyle = `rgb(${col[0]},${col[1]},${col[2]})`
+          g.fillRect(sx[i] - side / 2, sy[i] - side / 2, side, side)
+        } else if (n.kind === 'item') drawItemShape(g, n.itemType ?? 'note', sx[i], sy[i], r, col)
+        else if (n.kind === 'folder' || n.kind === 'tag') {
+          g.fillStyle = `rgba(${col[0]},${col[1]},${col[2]},${n.kind === 'folder' ? 0.9 : 0.55})`
+          g.beginPath()
+          g.arc(sx[i], sy[i], r * (n.kind === 'folder' ? 0.75 : 0.6), 0, Math.PI * 2)
+          g.fill()
+          g.strokeStyle = `rgba(${col[0]},${col[1]},${col[2]},0.6)`
+          g.lineWidth = Math.max(1, r * 0.16)
+          g.beginPath()
+          g.arc(sx[i], sy[i], r, 0, Math.PI * 2)
+          g.stroke()
+          g.fillStyle = 'rgba(255,252,248,0.92)'
+          g.beginPath()
+          g.arc(sx[i], sy[i], Math.max(1, r * 0.25), 0, Math.PI * 2)
+          g.fill()
+        } else {
+          // an unwritten link: a dashed ring
           g.setLineDash([2.5, 3])
           g.strokeStyle = `rgba(${col[0]},${col[1]},${col[2]},0.8)`
           g.lineWidth = 1
           g.beginPath()
-          g.arc(p.x, p.y, rad * 1.5, 0, Math.PI * 2)
+          g.arc(sx[i], sy[i], Math.max(3, r * 1.5), 0, Math.PI * 2)
           g.stroke()
           g.setLineDash([])
-          continue
         }
-        const pulse = calm.current ? 1 : 0.92 + 0.08 * Math.sin(t * (1.1 + s.seed) + s.seed * 12)
-        const halo = (kind === 'tag' ? 2 : 2.3 + Math.min(1.1, s.node.degree * 0.09)) * rad * pulse * (i === focus ? 1.6 : 1)
-        g.globalAlpha = a * (kind === 'tag' ? 0.45 : 0.72)
-        g.drawImage(glowSprite(col), p.x - halo, p.y - halo, halo * 2, halo * 2)
-        g.globalAlpha = a
-        if (kind === 'item') {
-          const type = s.node.itemType ?? 'note'
-          g.lineWidth = Math.max(1, rad * 0.22)
-          g.strokeStyle = `rgba(${col[0]},${col[1]},${col[2]},0.95)`
-          if (type === 'web' || type === 'pdf') {
-            g.fillStyle = 'rgba(4,7,10,0.72)'
-            g.beginPath()
-            g.arc(p.x, p.y, rad * 0.95, 0, Math.PI * 2)
-            g.fill()
-            g.beginPath()
-            g.arc(p.x, p.y, rad * 1.05, 0, Math.PI * 2)
-            g.stroke()
-            if (type === 'pdf') {
-              g.strokeStyle = `rgba(${col[0]},${col[1]},${col[2]},0.55)`
-              g.beginPath()
-              g.arc(p.x, p.y, rad * 1.65, 0, Math.PI * 2)
-              g.stroke()
-            }
-          }
-          if (type === 'prompt') {
-            g.lineWidth = Math.max(0.8, rad * 0.14)
-            g.strokeStyle = `rgba(${col[0]},${col[1]},${col[2]},0.85)`
-            g.beginPath()
-            g.moveTo(p.x - rad * 2, p.y)
-            g.lineTo(p.x + rad * 2, p.y)
-            g.moveTo(p.x, p.y - rad * 2)
-            g.lineTo(p.x, p.y + rad * 2)
-            g.stroke()
-          }
-          g.fillStyle = type === 'file' ? `rgba(${col[0]},${col[1]},${col[2]},1)` : 'rgba(255,250,245,0.92)'
-          if (type === 'file') g.fillRect(p.x - rad * 0.5, p.y - rad * 0.5, rad, rad)
-          else if (type !== 'web' && type !== 'pdf') {
-            g.beginPath()
-            g.arc(p.x, p.y, Math.max(0.8, rad * 0.32), 0, Math.PI * 2)
-            g.fill()
-          } else {
-            g.beginPath()
-            g.arc(p.x, p.y, Math.max(0.7, rad * 0.22), 0, Math.PI * 2)
-            g.fill()
-          }
-        }
-        if (hl && hl.has(i) && i !== selectedRef.current) {
-          g.globalAlpha = 0.85
+        if (hl && hl.has(i) && i !== sc.selected) {
+          g.globalAlpha = 0.8
           g.strokeStyle = `rgba(${col[0]},${col[1]},${col[2]},0.9)`
           g.lineWidth = 1.2
           g.beginPath()
-          g.arc(p.x, p.y, rad * 2.6 + 3, 0, Math.PI * 2)
-          g.stroke()
-        }
-        if (i === selectedRef.current) {
-          g.globalAlpha = 1
-          const ring = rad * (2.4 + (calm.current ? 0 : 0.35 * Math.sin(t * 3)))
-          g.strokeStyle = `rgba(255,255,255,0.9)`
-          g.lineWidth = 1.5
-          g.beginPath()
-          g.arc(p.x, p.y, ring, 0, Math.PI * 2)
-          g.stroke()
-          g.strokeStyle = `rgba(${col[0]},${col[1]},${col[2]},0.45)`
-          g.beginPath()
-          g.moveTo(p.x - ring * 2.4, p.y)
-          g.lineTo(p.x + ring * 2.4, p.y)
-          g.moveTo(p.x, p.y - ring * 2.4)
-          g.lineTo(p.x, p.y + ring * 2.4)
+          g.arc(sx[i], sy[i], r * 1.8 + 4, 0, Math.PI * 2)
           g.stroke()
         }
       }
 
-      if (!compactMode && !lowQuality.current) {
-        bloomScratch.current ??= document.createElement('canvas')
-        bloom(g, canvas, bloomScratch.current, w, h, BLOOM_STRENGTH)
-        g.setTransform(dpr, 0, 0, dpr, 0, 0)
-      }
-      const ripple = rippleRef.current
-      if (ripple && sys.stars[ripple.idx] && proj[ripple.idx]?.visible && !calm.current) {
-        const age = (now - ripple.t0) / RIPPLE_MS
-        if (age >= 1) rippleRef.current = null
-        else {
-          const p = proj[ripple.idx]
-          const col = colorOf(sys.stars[ripple.idx])
-          const neighbours = sys.neighbors[ripple.idx].flatMap((n) => {
-            const q = proj[n]
-            return q?.visible ? [{ x: q.x, y: q.y, halo: Math.max(sys.stars[n].r * q.scale, 1.1) * 5, col: colorOf(sys.stars[n]) }] : []
-          })
-          drawRipple(g, p, col, age, neighbours)
-          g.globalAlpha = 1
-        }
-      }
-
-      // region captions with leader lines, like labelled areas of a brain scan
-      g.globalCompositeOperation = 'source-over'
-      if (!compactMode) {
-        g.textAlign = 'left'
-        g.textBaseline = 'alphabetic'
-        let slot = 0
-        for (const reg of regionsRef.current) {
-          const a = agg.get(reg.name)
-          if (!a || a.n < 3) continue
-          const cx = a.x / a.n
-          const cy = a.y / a.n
-          if (cx < -40 || cx > w + 40 || cy < -40 || cy > h + 40) continue
-          const col = regionColors.current.get(reg.name) ?? pal.accent
-          const lx = cx + 22
-          const ly = cy - 30 - (slot++ % 3) * 6
-          g.globalAlpha = focus >= 0 ? 0.2 : 0.75
-          g.strokeStyle = `rgba(${col[0]},${col[1]},${col[2]},0.55)`
-          g.lineWidth = 1
-          g.beginPath()
-          g.moveTo(cx, cy)
-          g.lineTo(lx - 4, ly + 3)
-          g.lineTo(lx + 40, ly + 3)
-          g.stroke()
-          g.fillStyle = `rgb(${col[0]},${col[1]},${col[2]})`
-          g.beginPath()
-          g.arc(cx, cy, 2.2, 0, Math.PI * 2)
-          g.fill()
-          g.font = '700 11.5px Inter, system-ui, sans-serif'
-          ;(g as unknown as { letterSpacing: string }).letterSpacing = '1.2px'
-          g.fillText(reg.name.toUpperCase().slice(0, 18), lx, ly)
-          ;(g as unknown as { letterSpacing: string }).letterSpacing = '0px'
-        }
+      // the selected note: a white ring, and a ripple when it was just picked
+      if (sc.selected >= 0 && sc.selected < count) {
+        const i = sc.selected
         g.globalAlpha = 1
+        g.strokeStyle = 'rgba(255,255,255,0.92)'
+        g.lineWidth = 1.5
+        g.beginPath()
+        g.arc(sx[i], sy[i], Math.max(7, radius(i) * 1.7) + (calm ? 0 : Math.sin(t * 3) * 0.8), 0, Math.PI * 2)
+        g.stroke()
+      }
+      const rip = sc.ripple
+      if (rip && rip.idx < count) {
+        if (rip.t0 < 0) rip.t0 = now
+        const age = (now - rip.t0) / RIPPLE_MS
+        if (age >= 1) sc.ripple = null
+        else {
+          const neighbours = sc.neighbours[rip.idx].map((n) => ({ x: sx[n], y: sy[n], halo: radius(n) * 5, col: sc.colors[n] }))
+          drawRipple(g, { x: sx[rip.idx], y: sy[rip.idx] }, sc.colors[rip.idx], age, neighbours)
+        }
       }
 
-      // labels: a small budget, most important first, never overlapping
+      // labels: one collision check for all of them, clear of each other, the edges and the panels
       g.globalCompositeOperation = 'source-over'
-      g.textAlign = 'center'
-      g.textBaseline = 'top'
-      g.lineJoin = 'round'
-      const wanted: { i: number; priority: number }[] = []
-      for (const i of order) {
-        const s = sys.stars[i]
-        const p = proj[i]
-        let priority = 0
-        if (i === selectedRef.current) priority = 100
-        else if (i === hoverRef.current) priority = 95
-        else if (near.has(i)) priority = 70
-        else if (focus < 0 && s.node.kind === 'item' && s.node.degree >= 5 && p.depth < cam.dist * 1.1) priority = 20 + s.node.degree
-        else if (focus < 0 && cam.dist < 260 && s.r * p.scale > 7) priority = 10
-        else if (focus < 0 && compactMode && s.node.kind === 'item') priority = 5
-        if (priority) wanted.push({ i, priority })
-      }
-      wanted.sort((a, b) => b.priority - a.priority)
-      const budget = compactMode ? 5 : cam.dist < 260 ? 18 : 5
-      const taken: { x0: number; x1: number; y0: number; y1: number }[] = []
-      let shown = 0
-      for (const { i, priority } of wanted) {
-        if (shown >= budget && priority < 90) break
-        const s = sys.stars[i]
-        const p = proj[i]
-        const size = clamp(11.5 * Math.sqrt(p.scale * 4.2), 10.5, 14)
-        const label = s.node.label.length > 28 ? s.node.label.slice(0, 27) + '…' : s.node.label
-        g.font = `${priority >= 90 ? 650 : 520} ${size}px Inter, system-ui, sans-serif`
-        const width = g.measureText(label).width + size * 1.24
-        const y = p.y + Math.max(s.r * p.scale * 1.6, 7) + 5
-        const box = { x0: p.x - width / 2, x1: p.x + width / 2, y0: y, y1: y + size * 1.62 }
-        if (priority < 90 && taken.some((t) => box.x0 < t.x1 && box.x1 > t.x0 && box.y0 < t.y1 && box.y1 > t.y0)) continue
-        taken.push(box)
-        shown++
-        g.globalAlpha = priority >= 70 ? 1 : fade(p.depth) * 0.9
-        drawLabelPill(g, label, p.x, y, size, colorOf(s), priority >= 70)
+      const requests = labelRequests(
+        { nodes, sx, sy, radius, w, h, focus, selected: sc.selected, neighbours: sc.neighbours, highlight: hl, zoom, compact: compactMode, regions: regionsOnScreen, obstacles: obstaclesRef.current },
+        measure,
+      )
+      const labels = placeLabels(requests, measure, { w, h }, obstaclesRef.current)
+      for (const l of labels) {
+        if (l.kind === 'region') {
+          const r = sc.regionNames.indexOf(l.id.slice(7))
+          g.globalAlpha = near || hl ? 0.45 : 0.95
+          drawRegionName(g, l.text, l.box.x + l.box.w / 2, l.box.y + l.box.h / 2, l.size, sc.regionColors[r])
+          continue
+        }
+        const i = sc.layout.index.get(l.id)!
+        const strong = l.size === LABEL_SIZE.strong || l.size === LABEL_SIZE.hub
+        g.globalAlpha = l.priority >= 990 ? 1 : dimmed(i) ? 0.4 : l.priority >= 800 ? 0.95 : 0.85
+        drawLabelPill(g, l.text, l.box.x + l.box.w / 2, l.box.y, l.size, sc.colors[i], strong)
       }
       g.globalAlpha = 1
-      g.globalCompositeOperation = 'source-over'
+      if (import.meta.env.DEV) (window as DevWindow).__graphLabels = labels
     }
 
     if (import.meta.env.DEV) {
-      // test hook: screen positions of every star, so automated checks can click real nodes
-      ;(window as unknown as { __galaxy?: () => unknown }).__galaxy = () => {
-        const { w, h } = sizeRef.current
-        const cam = camRef.current
-        const basis = basisOf(cam)
-        return sysRef.current.stars.map((s) => ({ id: s.node.id, label: s.node.label, ...project(basis, cam, s.p, w, h) }))
+      // test hook: where every node is on screen, so automated checks can click real nodes
+      ;(window as DevWindow).__graphNodes = () => {
+        const sc = sceneRef.current
+        return sc.layout.nodes.map((n, i) => ({ id: n.id, label: n.node.label, x: sc.placed.sx[i], y: sc.placed.sy[i], r: sizeOf(sc.looks[i], sc.view.scale, sc.placed.f[i] || 1) }))
       }
     }
-    raf = requestAnimationFrame(frame)
-    return () => {
-      alive = false
-      cancelAnimationFrame(raf)
-      ro.disconnect()
-      mo.disconnect()
-      io.disconnect()
-    }
-  }, [])
 
-  // pointer interaction: orbit, pan, pinch, drag a star, click, double-click, wheel
-  useEffect(() => {
-    const canvas = canvasRef.current!
+    // ---- pointer input: click selects, double-click opens, drag moves a node or pans, wheel and pinch zoom ----
     const pointers = new Map<number, { x: number; y: number }>()
-    type Mode = 'none' | 'orbit' | 'pan' | 'node' | 'pinch'
-    let mode: Mode = 'none'
-    let dragStar: Star | null = null
-    let dragDepth = 0
-    let moved = 0
-    let pinchDist = 0
+    let drag: { node: number; start: { x: number; y: number }; view: View; moved: boolean } | null = null
+    let pinch: { distance: number; scale: number } | null = null
     let lastTap = 0
-    let lastTapId = -1
+    let lastTapNode = -2
 
     const local = (e: PointerEvent | WheelEvent) => {
       const r = canvas.getBoundingClientRect()
       return { x: e.clientX - r.left, y: e.clientY - r.top }
     }
-    const pick = (x: number, y: number, slop = 6) => {
-      const { w, h } = sizeRef.current
-      const cam = camRef.current
-      return hitTest(sysRef.current, basisOf(cam), cam, x, y, w, h, slop)
+    const hit = (p: { x: number; y: number }, touch: boolean) => {
+      const sc = sceneRef.current
+      return pick(sc.looks, sc.placed, sc.view.scale, p.x, p.y, touch ? 16 : 8)
     }
 
     const down = (e: PointerEvent) => {
-      canvas.setPointerCapture(e.pointerId)
       const p = local(e)
       pointers.set(e.pointerId, p)
-      moved = 0
-      touch()
-      flyRef.current = null
-      motion.current = { yawV: 0, pitchV: 0 }
-      if (pointers.size === 2) {
+      canvas.setPointerCapture?.(e.pointerId)
+      const sc = sceneRef.current
+      if (pointers.size === 2 && !isCompact()) {
         const [a, b] = [...pointers.values()]
-        pinchDist = Math.hypot(a.x - b.x, a.y - b.y)
-        if (dragStar) dragStar.pinned = false
-        dragStar = null
-        mode = 'pinch'
+        pinch = { distance: Math.hypot(a.x - b.x, a.y - b.y), scale: sc.view.scale }
+        if (drag && drag.node >= 0) sc.layout.nodes[drag.node].pinned = false
+        drag = null
         return
       }
-      const hit = e.button === 0 && !e.shiftKey ? pick(p.x, p.y, e.pointerType === 'touch' ? 14 : 6) : null
-      if (hit) {
-        mode = 'node'
-        dragStar = hit.star
-        dragDepth = hit.projected.depth
-        hit.star.pinned = true
-      } else {
-        mode = e.button === 2 || e.button === 1 || e.shiftKey ? 'pan' : 'orbit'
-      }
+      const node = e.button === 0 || e.pointerType === 'touch' ? hit(p, e.pointerType === 'touch') : -1
+      drag = { node, start: p, view: { ...sc.view }, moved: false }
+      if (node >= 0 && !isCompact()) sc.layout.nodes[node].pinned = true
     }
 
     const move = (e: PointerEvent) => {
       const p = local(e)
-      const prev = pointers.get(e.pointerId)
-      const { w, h } = sizeRef.current
-      const cam = camRef.current
-      if (!prev) {
-        const hit = pick(p.x, p.y)
-        const idx = hit?.star.index ?? -1
-        if (idx !== hoverRef.current) {
-          hoverRef.current = idx
-          canvas.style.cursor = idx >= 0 ? 'pointer' : 'grab'
-        }
-        return
-      }
-      pointers.set(e.pointerId, p)
-      touch()
-      const dx = p.x - prev.x
-      const dy = p.y - prev.y
-      moved += Math.abs(dx) + Math.abs(dy)
-      if (mode === 'pinch' && pointers.size === 2) {
+      const sc = sceneRef.current
+      if (pointers.has(e.pointerId)) pointers.set(e.pointerId, p)
+      if (pinch && pointers.size === 2) {
         const [a, b] = [...pointers.values()]
-        const d = Math.hypot(a.x - b.x, a.y - b.y)
-        if (pinchDist > 0) camRef.current = { ...cam, dist: clamp(cam.dist * (pinchDist / d), 60, 3600) }
-        pinchDist = d
+        const distance = Math.hypot(a.x - b.x, a.y - b.y)
+        if (pinch.distance > 0) zoomAt((pinch.scale * distance) / pinch.distance / sc.view.scale, (a.x + b.x) / 2, (a.y + b.y) / 2)
         return
       }
-      if (mode === 'node' && dragStar) {
-        const world = unproject(basisOf(cam), cam, p.x, p.y, dragDepth, w, h)
-        dragStar.p = world
-        return
-      }
-      if (mode === 'orbit') {
-        const yawD = -dx * 0.0052
-        const pitchD = dy * 0.0052
-        camRef.current = { ...cam, yaw: cam.yaw + yawD, pitch: clamp(cam.pitch + pitchD, -1.45, 1.45) }
-        motion.current = { yawV: yawD / 4, pitchV: pitchD / 4 }
-        canvas.style.cursor = 'grabbing'
-      } else if (mode === 'pan') {
-        const k = cam.dist / focalLength(cam, h)
-        const b = basisOf(cam)
-        followRef.current = -1
-        camRef.current = {
-          ...cam,
-          target: {
-            x: cam.target.x + (-b.right.x * dx + b.up.x * dy) * k,
-            y: cam.target.y + (-b.right.y * dx + b.up.y * dy) * k,
-            z: cam.target.z + (-b.right.z * dx + b.up.z * dy) * k,
-          },
+      if (!drag) {
+        const over = hit(p, false)
+        if (over !== sc.hover) {
+          sc.hover = over
+          canvas.style.cursor = over >= 0 ? 'pointer' : isCompact() ? 'default' : 'grab'
+          kick()
         }
-        canvas.style.cursor = 'move'
+        return
       }
+      if (Math.hypot(p.x - drag.start.x, p.y - drag.start.y) > (e.pointerType === 'touch' ? 8 : 4)) drag.moved = true
+      if (!drag.moved || isCompact()) return
+      sc.autoFit = false
+      sc.flight = null
+      if (drag.node >= 0) {
+        const n = sc.layout.nodes[drag.node]
+        const at = unplace(p.x, p.y, sc.looks[drag.node], sc.placed.f[drag.node] || 1, sc.stats, sc.view, sc.angle)
+        n.x = at.x
+        n.y = at.y
+        sc.layout.reheat(0.3)
+      } else {
+        sc.view = { ...drag.view, x: drag.view.x + p.x - drag.start.x, y: drag.view.y + p.y - drag.start.y }
+        canvas.style.cursor = 'grabbing'
+      }
+      kick()
     }
 
     const up = (e: PointerEvent) => {
-      const p = local(e)
       pointers.delete(e.pointerId)
-      if (pointers.size < 2) pinchDist = 0
-      const click = moved < 6
-      if (mode === 'node' && dragStar) {
-        const star = dragStar
-        star.pinned = false
-        dragStar = null
-        if (click) {
-          const now = Date.now()
-          if (now - lastTap < 380 && lastTapId === star.index) propsRef.current.onOpen(star.node)
-          else {
-            selectedRef.current = star.index
-            propsRef.current.onSelect(star.node.id)
-          }
-          lastTap = now
-          lastTapId = star.index
-        }
-      } else if ((mode === 'orbit' || mode === 'pan') && click && !pick(p.x, p.y)) {
-        const now = Date.now()
-        if (now - lastTap < 380 && lastTapId === -2) fitView(true)
-        else if (selectedRef.current >= 0) propsRef.current.onSelect(null)
-        lastTap = now
-        lastTapId = -2
-      }
-      if (pointers.size === 0) mode = 'none'
-      canvas.style.cursor = hoverRef.current >= 0 ? 'pointer' : 'grab'
+      if (pointers.size < 2) pinch = null
+      if (!drag) return
+      const sc = sceneRef.current
+      const d = drag
+      drag = null
+      if (d.node >= 0) sc.layout.nodes[d.node].pinned = false
+      canvas.style.cursor = sc.hover >= 0 ? 'pointer' : isCompact() ? 'default' : 'grab'
+      if (d.moved || e.type === 'pointercancel') return
+      const now = Date.now()
+      const double = now - lastTap < TAP_MS && lastTapNode === d.node
+      lastTap = now
+      lastTapNode = d.node
+      if (d.node >= 0) {
+        const node = sc.layout.nodes[d.node].node
+        if (double) propsRef.current.onOpen(node)
+        else propsRef.current.onSelect(node.id)
+      } else if (double && !isCompact()) {
+        sc.flight = null
+        sc.autoFit = true
+        sc.fitted = false
+        kick()
+      } else if (sc.selected >= 0) propsRef.current.onSelect(null)
     }
 
     const leave = () => {
-      hoverRef.current = -1
+      const sc = sceneRef.current
+      if (sc.hover >= 0 && !drag) {
+        sc.hover = -1
+        kick()
+      }
     }
 
     const wheel = (e: WheelEvent) => {
-      if (propsRef.current.compact && !e.ctrlKey) return // let the page scroll past the small graph
+      if (isCompact() && !e.ctrlKey) return // let the page scroll past the preview
       e.preventDefault()
-      touch()
-      flyRef.current = null
-      const cam = camRef.current
-      camRef.current = { ...cam, dist: clamp(cam.dist * Math.exp(e.deltaY * (e.ctrlKey ? 0.01 : 0.0013)), 60, 3600) }
+      const p = local(e)
+      zoomAt(Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0015)), p.x, p.y)
     }
+    const noMenu = (e: Event) => e.preventDefault()
 
     canvas.addEventListener('pointerdown', down)
     canvas.addEventListener('pointermove', move)
@@ -783,9 +783,19 @@ export const GraphCanvas = forwardRef<GraphHandle, Props>(function GraphCanvas({
     canvas.addEventListener('pointercancel', up)
     canvas.addEventListener('pointerleave', leave)
     canvas.addEventListener('wheel', wheel, { passive: false })
-    const noMenu = (e: Event) => e.preventDefault()
     canvas.addEventListener('contextmenu', noMenu)
+    kick()
     return () => {
+      alive = false
+      cancelAnimationFrame(raf)
+      raf = 0
+      kickRef.current = () => {}
+      ro.disconnect()
+      theme.disconnect()
+      panels.disconnect()
+      io.disconnect()
+      document.removeEventListener('visibilitychange', onVisibility)
+      document.fonts?.removeEventListener('loadingdone', onFonts)
       canvas.removeEventListener('pointerdown', down)
       canvas.removeEventListener('pointermove', move)
       canvas.removeEventListener('pointerup', up)
@@ -794,11 +804,63 @@ export const GraphCanvas = forwardRef<GraphHandle, Props>(function GraphCanvas({
       canvas.removeEventListener('wheel', wheel)
       canvas.removeEventListener('contextmenu', noMenu)
     }
-  }, [fitView, touch])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // A new layout per data change, warm-started from the previous one so surviving notes stay where they were.
+  useEffect(() => {
+    const sc = sceneRef.current
+    const prev = sc.layout.nodes.length ? sc.layout : undefined
+    const layout = createCloudLayout(data, prev)
+    // Reduced motion: no unfolding, the settled cloud appears at once. Otherwise a short head start.
+    const stop = performance.now() + (calm ? 250 : prev ? 0 : 40)
+    while (!layout.settled && performance.now() < stop) layout.tick()
+    sc.layout = layout
+    sc.looks = layout.nodes.map(lookOf)
+    sc.neighbours = layout.nodes.map(() => [])
+    for (const e of layout.edges) {
+      sc.neighbours[e.a].push(e.b)
+      sc.neighbours[e.b].push(e.a)
+    }
+    sc.placed = newPlaced(layout.nodes.length)
+    sc.order = []
+    sc.signals = []
+    sc.hover = -1
+    sc.ripple = null
+    sc.settledReported = false
+    sc.drawn = false
+    const sel = propsRef.current.selectedId
+    sc.selected = sel ? (layout.index.get(sel) ?? -1) : -1
+    if (!prev) sc.autoFit = true
+    if (sc.autoFit) sc.fitted = false
+    restyle()
+    syncHighlight()
+    kickRef.current()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data])
+
+  // Selecting (here or from outside): a ripple, and the note is brought into view if it is hidden.
+  useEffect(() => {
+    const sc = sceneRef.current
+    const first = sc.selectedId === undefined
+    if (sc.selectedId === selectedId) return // StrictMode runs effects twice; nothing changed
+    sc.selectedId = selectedId
+    const idx = selectedId ? (sc.layout.index.get(selectedId) ?? -1) : -1
+    sc.selected = idx
+    sc.ripple = idx >= 0 && !calm ? { idx, t0: -1 } : null
+    sc.reveal = idx >= 0 ? { zoom: first } : null
+    kickRef.current(true)
+  }, [selectedId, calm])
+
+  useEffect(() => {
+    syncHighlight()
+    kickRef.current(true)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [highlight])
 
   return (
     <div ref={wrapRef} className="graph-wrap">
-      <canvas ref={canvasRef} className="graph-canvas" style={{ touchAction: 'none', cursor: 'grab' }} />
+      <canvas ref={canvasRef} className="graph-canvas" style={{ touchAction: compact ? 'pan-y' : 'none', cursor: compact ? 'default' : 'grab' }} />
     </div>
   )
 })
