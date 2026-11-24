@@ -1,14 +1,22 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { captureSignals } from '../core/noteStats'
-import { captureFile, captureText, captureImageWithOCR, type CaptureResult } from '../import/capture'
+import { logError } from '../data/errorLog'
+import { captureFile, captureText, captureImageWithOCR, type CaptureResult, type CaptureStep } from '../import/capture'
 import { Icon } from './Icon'
 import { toast } from './toast'
 import { useDictation } from './useDictation'
+
+const STEP_LABEL: Record<CaptureStep, string> = {
+  download: 'Downloading page\u2026',
+  read: 'Reading page\u2026',
+  save: 'Saving\u2026',
+}
 
 export function Capture({ onClose, initial = '', dictate = false }: { onClose(): void; initial?: string; dictate?: boolean }) {
   const [text, setText] = useState(initial)
   const [files, setFiles] = useState<File[]>([])
   const [busy, setBusy] = useState(false)
+  const [step, setStep] = useState<CaptureStep>('save')
   const [drag, setDrag] = useState(false)
   const [ocrBusy, setOcrBusy] = useState(false)
   const ta = useRef<HTMLTextAreaElement>(null)
@@ -27,10 +35,20 @@ export function Capture({ onClose, initial = '', dictate = false }: { onClose():
     if (voice.listening) voice.stop()
     if (!text.trim() && files.length === 0) return
     setBusy(true)
+    setStep('save')
     const results: CaptureResult[] = []
-    if (text.trim()) results.push(await captureText(text))
-    for (const f of files) results.push(await captureFile(f))
-    setBusy(false)
+    try {
+      if (text.trim()) results.push(await captureText(text, setStep))
+      setStep('save')
+      for (const f of files) results.push(await captureFile(f))
+    } catch (e) {
+      // Nothing may fail silently: say what broke and keep the text so it can be saved again.
+      logError('save', e, text.slice(0, 200))
+      toast(`Could not save: ${e instanceof Error ? e.message : String(e)}. Details in Settings → About.`, 'error')
+      return
+    } finally {
+      setBusy(false)
+    }
     const saved = results.filter((r) => r.item).length
     for (const r of results) {
       if (r.error) toast(r.error, 'error')
@@ -68,6 +86,7 @@ export function Capture({ onClose, initial = '', dictate = false }: { onClose():
           await handleImageCapture(file)
         }
       } catch (e) {
+        logError('screenshot', e)
         toast(`Screenshot failed: ${e instanceof Error ? e.message : String(e)}`, 'error')
       }
     } else if (cameraInput.current) {
@@ -156,7 +175,7 @@ export function Capture({ onClose, initial = '', dictate = false }: { onClose():
           <span className="muted small hide-mobile">Ctrl+Enter to save</span>
           <span className="spacer" />
           <button className="btn primary save-btn" disabled={busy || (!text.trim() && !files.length)} onClick={save}>
-            <Icon name="check" size={16} /> {busy ? 'Saving\u2026' : 'Save'}
+            <Icon name="check" size={16} /> {busy ? STEP_LABEL[step] : 'Save'}
             {found > 0 && !busy && <span className="save-count">{found} found</span>}
           </button>
         </div>

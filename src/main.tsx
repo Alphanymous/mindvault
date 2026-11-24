@@ -10,7 +10,9 @@ import { App } from './ui/App'
 import { initStore } from './data/store'
 import { registerPeerHost } from './sync/peerHost'
 import { setupServiceWorker } from './pwa'
+import { watchUncaughtErrors } from './data/errorLog'
 
+watchUncaughtErrors()
 registerPeerHost()
 setupServiceWorker()
 initStore().finally(() => {

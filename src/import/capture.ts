@@ -5,7 +5,11 @@ import { recognizeImage } from './ocr'
 import { extractPdf } from './pdf'
 import type { ClipPayload } from '../sync/pairing'
 import { parseShared, type SharedInput } from './shared'
-import { clipFromHtml, clipUrl, normalizeUrl } from './web'
+import { logError } from '../data/errorLog'
+import { clipFromHtml, fetchHtml, normalizeUrl } from './web'
+
+/** What a capture is doing right now, shown on the Save button so a slow step is visible. */
+export type CaptureStep = 'download' | 'read' | 'save'
 
 export interface CaptureResult {
   item?: Item
@@ -14,21 +18,30 @@ export interface CaptureResult {
 }
 
 /** One entry point for pasted text: link -> web clip, anything else -> note/prompt. */
-export async function captureText(raw: string): Promise<CaptureResult> {
+export async function captureText(raw: string, onStep?: (step: CaptureStep) => void): Promise<CaptureResult> {
   const text = raw.trim()
   if (!text) return { error: 'Nothing to save.' }
   const url = normalizeUrl(text)
-  if (url) return captureUrl(url)
+  if (url) return captureUrl(url, undefined, onStep)
+  onStep?.('save')
   const fm = parseFrontmatter(text)
   const title = typeof fm.data.title === 'string' ? fm.data.title : firstHeading(text)
   return { item: await createItem({ title, content: text }) }
 }
 
-export async function captureUrl(url: string, titleHint?: string): Promise<CaptureResult> {
+export async function captureUrl(url: string, titleHint?: string, onStep?: (step: CaptureStep) => void): Promise<CaptureResult> {
   try {
-    const clip = await clipUrl(url)
+    const target = normalizeUrl(url)
+    if (!target) throw new Error('That does not look like a web address.')
+    onStep?.('download')
+    const html = await fetchHtml(target)
+    onStep?.('read')
+    const clip = clipFromHtml(html, target)
+    onStep?.('save')
     return { item: await createItem({ type: 'web', title: clip.title, content: clip.markdown, url: clip.url }) }
   } catch (e) {
+    logError('capture', e, url)
+    onStep?.('save')
     // Never lose the link: save it anyway and say why the text is missing.
     const normalized = normalizeUrl(url) ?? url
     const item = await createItem({

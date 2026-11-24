@@ -95,11 +95,16 @@ export async function fetchHtmlWithRoute(url: string): Promise<Downloaded> {
     if (!res.ok) throw new ClipError(`The clip proxy answered ${res.status}`)
     return { html: await res.text(), route: 'proxy' }
   }
-  throw new ClipError(
-    directError instanceof ClipError
-      ? directError.message
-      : 'The browser blocked this download (CORS). Use the desktop or Android app, or pick a clip proxy in Settings → Capture.',
-  )
+  throw new ClipError(downloadFailure(directError))
+}
+
+/** Say what actually went wrong: a timeout and a native-app failure are not the browser's CORS block. */
+function downloadFailure(e: unknown): string {
+  if (e instanceof ClipError) return e.message
+  if ((e as Error)?.name === 'TimeoutError') return `The page did not answer within ${DOWNLOAD_TIMEOUT_MS / 1000} seconds.`
+  const reason = e instanceof Error && e.message ? ` (${e.message})` : ''
+  if (isNativeApp()) return `The download failed${reason}.`
+  return 'The browser blocked this download (CORS). Use the desktop or Android app, or pick a clip proxy in Settings → Capture.'
 }
 
 export async function fetchHtml(url: string): Promise<string> {
