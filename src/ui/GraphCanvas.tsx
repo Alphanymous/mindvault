@@ -1,6 +1,6 @@
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef } from 'react'
 import { createCloudLayout, type CloudLayout } from '../core/cloudLayout'
-import { regionHues, regionOfFolder, regionRgb } from '../core/clusters'
+import { regionHues, regionOf, regionOfFolder, regionRgb } from '../core/clusters'
 import { hash01 } from '../core/hash'
 import type { GraphData, GraphNode } from '../core/types'
 import { useAppState } from '../data/store'
@@ -27,6 +27,7 @@ import {
   type View,
 } from './cloudGeometry'
 import { LABEL_SIZE, labelRequests } from './cloudLabelRules'
+import { createAtlasScene, type AtlasScene } from './graphAtlas'
 import { placeLabels, type PlacedLabel } from './graphLabels'
 import {
   drawItemShape,
@@ -66,7 +67,7 @@ interface Props {
   compact?: boolean
   /** Ids that match the search: they stay bright, everything else dims. Null when not searching. */
   highlight?: Set<string> | null
-  /** Cloud (default) or Atlas. Atlas arrives with graphAtlas.ts; until then both draw the cloud. */
+  /** Cloud (default) or Atlas: orbs per region on a ring around a golden cloud. */
   view?: 'cloud' | 'atlas'
 }
 
@@ -138,19 +139,26 @@ function emptyScene(): Scene {
   }
 }
 
-export const GraphCanvas = forwardRef<GraphHandle, Props>(function GraphCanvas({ data, selectedId, onSelect, onOpen, compact, highlight }, ref) {
+export const GraphCanvas = forwardRef<GraphHandle, Props>(function GraphCanvas({ data, selectedId, onSelect, onOpen, compact, highlight, view = 'cloud' }, ref) {
   const wrapRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const sceneRef = useRef<Scene>(emptyScene())
   const sizeRef = useRef({ w: 300, h: 300, dpr: 1 })
   const paletteRef = useRef<Palette | null>(null)
-  const propsRef = useRef({ onSelect, onOpen, compact: !!compact, selectedId, highlight })
-  propsRef.current = { onSelect, onOpen, compact: !!compact, selectedId, highlight }
+  const propsRef = useRef({ onSelect, onOpen, compact: !!compact, selectedId, highlight, view })
+  propsRef.current = { onSelect, onOpen, compact: !!compact, selectedId, highlight, view }
+  /** The Atlas scene while view is 'atlas'; the frame loop and pointer input hand over to it. */
+  const atlasRef = useRef<AtlasScene | null>(null)
   const calm = useRef(typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches).current
   /** Ask for a redraw; restarts the frame loop if it had stopped. Set by the render-loop effect. */
   const kickRef = useRef<(stale?: boolean) => void>(() => {})
   /** Floating panels over the canvas, in canvas coordinates; read by the frame loop when the page changes. */
   const obstaclesRef = useRef<Box[]>([])
+  /** Hands the current panels and free frame to the Atlas scene (set by the render-loop effect). */
+  /** Notes by id of the current data, read by pointer input. */
+  const nodeByIdRef = useRef(new Map<string, GraphNode>())
+  nodeByIdRef.current = useMemo(() => new Map(data.nodes.map((n) => [n.id, n])), [data])
+  const syncAtlasRef = useRef<() => void>(() => {})
   // Region colours come from every live note, never the filtered graph, so they match the Atlas list and Clusters.
   const { items } = useAppState()
   const liveRegions = useMemo(() => [...new Set(items.filter((i) => !i.deleted).map((i) => regionOfFolder(i.folder)))].sort().join('\n'), [items])
@@ -195,8 +203,7 @@ export const GraphCanvas = forwardRef<GraphHandle, Props>(function GraphCanvas({
   const ambientOn = () => !calm && sceneRef.current.layout.nodes.length <= AMBIENT_LIMIT
 
   /** Frame the cloud; on a wide canvas, beside tall side panels (the open Atlas list, the selected note's card). */
-  const fitTarget = (): View => {
-    const sc = sceneRef.current
+  const fitFrame = (): Frame => {
     const { w, h } = sizeRef.current
     let left = 0, right = 0, top = 0, bottom = 0
     for (const o of obstaclesRef.current) {
@@ -211,7 +218,12 @@ export const GraphCanvas = forwardRef<GraphHandle, Props>(function GraphCanvas({
     }
     if (w - left - right < Math.max(420, w * 0.55)) left = right = 0
     if (h - top - bottom < h * 0.6) top = bottom = 0
-    const frame: Frame = { x: left, y: top, w: w - left - right, h: h - top - bottom }
+    return { x: left, y: top, w: w - left - right, h: h - top - bottom }
+  }
+
+  const fitTarget = (): View => {
+    const sc = sceneRef.current
+    const frame = fitFrame()
     const v = fitView(sc.layout.nodes, sc.looks, cloudStats(sc.layout.nodes), frame, sc.spin && ambientOn())
     if (sc.layout.nodes.length) sc.fitScale = v.scale
     return v
@@ -241,8 +253,20 @@ export const GraphCanvas = forwardRef<GraphHandle, Props>(function GraphCanvas({
   }
 
   useImperativeHandle(ref, () => ({
-    zoomBy: (factor) => zoomAt(factor, sizeRef.current.w / 2, sizeRef.current.h / 2),
+    zoomBy: (factor) => {
+      const atlas = atlasRef.current
+      if (atlas) {
+        const f = fitFrame()
+        atlas.zoomAt(factor, f.x + f.w / 2, f.y + f.h / 2)
+        kickRef.current()
+      } else zoomAt(factor, sizeRef.current.w / 2, sizeRef.current.h / 2)
+    },
     fit: () => {
+      if (atlasRef.current) {
+        atlasRef.current.fit()
+        kickRef.current()
+        return
+      }
       const sc = sceneRef.current
       sc.flight = null
       sc.autoFit = true
@@ -251,6 +275,11 @@ export const GraphCanvas = forwardRef<GraphHandle, Props>(function GraphCanvas({
     },
     focusSelected: () => {
       const sc = sceneRef.current
+      if (atlasRef.current) {
+        atlasRef.current.setSelected(propsRef.current.selectedId, true)
+        kickRef.current()
+        return
+      }
       if (sc.selected < 0) return
       const { w, h } = sizeRef.current
       const scale = Math.min(scaleLimits().max, Math.max(sc.view.scale, sc.fitScale * 2))
@@ -259,10 +288,16 @@ export const GraphCanvas = forwardRef<GraphHandle, Props>(function GraphCanvas({
     toggleSpin: () => {
       const sc = sceneRef.current
       sc.spin = !sc.spin
+      atlasRef.current?.setSpin(sc.spin)
       kickRef.current()
       return sc.spin
     },
     focusRegion: (name) => {
+      if (atlasRef.current) {
+        atlasRef.current.focus(name || null)
+        kickRef.current()
+        return
+      }
       const sc = sceneRef.current
       const c = sc.layout.regionCentres().get(name)
       if (!c) return
@@ -293,7 +328,9 @@ export const GraphCanvas = forwardRef<GraphHandle, Props>(function GraphCanvas({
     let slowFrames = 0
     let drawMs = 0
     let obstaclesStale = true
+    let atlasMoving = false
     const widths = new Map<string, number>()
+    const nodeById = { get: (id: string) => nodeByIdRef.current.get(id) }
     const dustPoint: Point = { x: 0, y: 0, f: 1 }
 
     const kick = (stale = false) => {
@@ -316,6 +353,7 @@ export const GraphCanvas = forwardRef<GraphHandle, Props>(function GraphCanvas({
       repaint()
       const sc = sceneRef.current
       if (sc.autoFit) sc.fitted = false
+      atlasRef.current?.resize(sizeRef.current.w, sizeRef.current.h, dpr)
       kick(true)
     }
     resize()
@@ -361,6 +399,17 @@ export const GraphCanvas = forwardRef<GraphHandle, Props>(function GraphCanvas({
         return covers ? [{ x, y, w, h }] : []
       })
       obstaclesStale = false
+      syncAtlas()
+    }
+    const syncAtlas = () => {
+      const atlas = atlasRef.current
+      if (!atlas) return
+      atlas.setObstacles(obstaclesRef.current)
+      atlas.setFrame(fitFrame())
+    }
+    syncAtlasRef.current = () => {
+      readObstacles()
+      kick()
     }
     const onSettle = () => kick(true)
     page.addEventListener('animationend', onSettle, true)
@@ -386,6 +435,26 @@ export const GraphCanvas = forwardRef<GraphHandle, Props>(function GraphCanvas({
       lastFrame = now
       let busy = false
       if (obstaclesStale) readObstacles()
+
+      const atlas = atlasRef.current
+      if (atlas) {
+        // Atlas: its own scene. Frames run only while it moves (flight, intro, satellites) or something changed.
+        if (dirty || (atlasMoving && now - lastDraw >= (isCompact() ? 40 : 33) - 2)) {
+          const { dpr } = sizeRef.current
+          ctx.setTransform(1, 0, 0, 1, 0, 0)
+          ctx.globalCompositeOperation = 'source-over'
+          ctx.globalAlpha = 1
+          if (backdrop) ctx.drawImage(backdrop, 0, 0)
+          else ctx.clearRect(0, 0, canvas.width, canvas.height)
+          ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+          atlasMoving = atlas.draw(ctx, now)
+          if (import.meta.env.DEV) (window as DevWindow).__graphLabels = atlas.labels()
+          dirty = false
+          lastDraw = now
+        }
+        if (atlasMoving || dirty) raf = requestAnimationFrame(frame)
+        return
+      }
 
       if (!sc.layout.settled) {
         // While the cloud unfolds the layout gets most of each frame; more when drawing is slow (big vaults, phones).
@@ -713,6 +782,8 @@ export const GraphCanvas = forwardRef<GraphHandle, Props>(function GraphCanvas({
     if (import.meta.env.DEV) {
       // test hook: where every node is on screen, so automated checks can click real nodes
       ;(window as DevWindow).__graphNodes = () => {
+        const atlas = atlasRef.current
+        if (atlas) return atlas.positions().map((p) => ({ ...p, label: nodeById.get(p.id)?.label ?? p.id }))
         const sc = sceneRef.current
         return sc.layout.nodes.map((n, i) => ({ id: n.id, label: n.node.label, x: sc.placed.sx[i], y: sc.placed.sy[i], r: sizeOf(sc.looks[i], sc.view.scale, sc.placed.f[i] || 1) }))
       }
@@ -734,7 +805,57 @@ export const GraphCanvas = forwardRef<GraphHandle, Props>(function GraphCanvas({
       return pick(sc.looks, sc.placed, sc.view.scale, p.x, p.y, touch ? 16 : 8)
     }
 
+    // Atlas input: click an orb to fly in, a fanned note to select it (twice to open), empty space to go back.
+    let adrag: { start: { x: number; y: number }; last: { x: number; y: number }; moved: boolean } | null = null
+    let aTap = { t: 0, id: '' }
+    const atlasDown = (e: PointerEvent, atlas: AtlasScene) => {
+      void atlas
+      const p = local(e)
+      canvas.setPointerCapture?.(e.pointerId)
+      adrag = { start: p, last: p, moved: false }
+    }
+    const atlasMove = (e: PointerEvent, atlas: AtlasScene) => {
+      const p = local(e)
+      if (!adrag) {
+        const over = atlas.pick(p.x, p.y)
+        if (atlas.setHover(over)) {
+          canvas.style.cursor = over ? 'pointer' : isCompact() ? 'default' : 'grab'
+          kick()
+        }
+        return
+      }
+      if (Math.hypot(p.x - adrag.start.x, p.y - adrag.start.y) > (e.pointerType === 'touch' ? 8 : 4)) adrag.moved = true
+      if (!adrag.moved || isCompact()) return
+      atlas.panBy(p.x - adrag.last.x, p.y - adrag.last.y)
+      adrag.last = p
+      kick()
+    }
+    const atlasUp = (e: PointerEvent, atlas: AtlasScene) => {
+      const d = adrag
+      adrag = null
+      if (!d || d.moved || e.type === 'pointercancel') return
+      const p = local(e)
+      const hit = atlas.pick(p.x, p.y)
+      if (!hit) {
+        if (atlas.focused()) atlas.focus(null)
+        else if (propsRef.current.selectedId) propsRef.current.onSelect(null)
+      } else if (hit.kind === 'orb') atlas.focus(hit.region)
+      else {
+        const now = Date.now()
+        const double = now - aTap.t < TAP_MS && aTap.id === hit.id
+        aTap = { t: now, id: hit.id }
+        const node = nodeById.get(hit.id)
+        if (node) {
+          if (double) propsRef.current.onOpen(node)
+          else propsRef.current.onSelect(node.id)
+        }
+      }
+      kick()
+    }
+
     const down = (e: PointerEvent) => {
+      const atlas = atlasRef.current
+      if (atlas) return atlasDown(e, atlas)
       const p = local(e)
       pointers.set(e.pointerId, p)
       canvas.setPointerCapture?.(e.pointerId)
@@ -752,6 +873,8 @@ export const GraphCanvas = forwardRef<GraphHandle, Props>(function GraphCanvas({
     }
 
     const move = (e: PointerEvent) => {
+      const atlas = atlasRef.current
+      if (atlas) return atlasMove(e, atlas)
       const p = local(e)
       const sc = sceneRef.current
       if (pointers.has(e.pointerId)) pointers.set(e.pointerId, p)
@@ -788,6 +911,8 @@ export const GraphCanvas = forwardRef<GraphHandle, Props>(function GraphCanvas({
     }
 
     const up = (e: PointerEvent) => {
+      const atlas = atlasRef.current
+      if (atlas) return atlasUp(e, atlas)
       pointers.delete(e.pointerId)
       if (pointers.size < 2) pinch = null
       if (!drag) return
@@ -814,6 +939,11 @@ export const GraphCanvas = forwardRef<GraphHandle, Props>(function GraphCanvas({
     }
 
     const leave = () => {
+      const atlas = atlasRef.current
+      if (atlas) {
+        if (!adrag && atlas.setHover(null)) kick()
+        return
+      }
       const sc = sceneRef.current
       if (sc.hover >= 0 && !drag) {
         sc.hover = -1
@@ -825,7 +955,12 @@ export const GraphCanvas = forwardRef<GraphHandle, Props>(function GraphCanvas({
       if (isCompact() && !e.ctrlKey) return // let the page scroll past the preview
       e.preventDefault()
       const p = local(e)
-      zoomAt(Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0015)), p.x, p.y)
+      const factor = Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0015))
+      const atlas = atlasRef.current
+      if (atlas) {
+        atlas.zoomAt(factor, p.x, p.y)
+        kick()
+      } else zoomAt(factor, p.x, p.y)
     }
     const noMenu = (e: Event) => e.preventDefault()
 
@@ -897,6 +1032,30 @@ export const GraphCanvas = forwardRef<GraphHandle, Props>(function GraphCanvas({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data])
 
+  // Atlas: one scene per data, theme-independent colours and view switch; the previous scene's focus carries over.
+  useEffect(() => {
+    if (view !== 'atlas') {
+      atlasRef.current = null
+      const sc = sceneRef.current
+      if (sc.autoFit) sc.fitted = false
+      kickRef.current(true)
+      return
+    }
+    const prev = atlasRef.current
+    const regions = new Set(data.nodes.flatMap((n) => regionOf(n) ?? []))
+    for (const r of liveRegionsRef.current.split('\n')) if (r) regions.add(r)
+    const atlas = createAtlasScene(data, { reducedMotion: calm, compact: !!compact, hues: regionHues(regions), intro: !prev })
+    atlas.setSpin(sceneRef.current.spin)
+    const { w, h, dpr } = sizeRef.current
+    atlas.resize(w, h, dpr)
+    atlas.setHighlight(propsRef.current.highlight ? new Set(propsRef.current.highlight) : null)
+    const focused = prev?.focused()
+    if (focused) atlas.focus(focused)
+    atlas.setSelected(propsRef.current.selectedId)
+    atlasRef.current = atlas
+    syncAtlasRef.current()
+  }, [data, view, calm, compact, liveRegions])
+
   // Selecting (here or from outside): a ripple, and the note is brought into view if it is hidden.
   useEffect(() => {
     const sc = sceneRef.current
@@ -907,6 +1066,7 @@ export const GraphCanvas = forwardRef<GraphHandle, Props>(function GraphCanvas({
     sc.selected = idx
     sc.ripple = idx >= 0 && !calm ? { idx, t0: -1 } : null
     sc.reveal = idx >= 0 ? { zoom: first } : null
+    atlasRef.current?.setSelected(selectedId)
     kickRef.current(true)
   }, [selectedId, calm])
 
@@ -919,6 +1079,7 @@ export const GraphCanvas = forwardRef<GraphHandle, Props>(function GraphCanvas({
 
   useEffect(() => {
     syncHighlight()
+    atlasRef.current?.setHighlight(highlight ? new Set(highlight) : null)
     kickRef.current(true)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [highlight])

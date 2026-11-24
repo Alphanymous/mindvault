@@ -16,6 +16,9 @@ const NEIGHBOURHOOD_HOPS = 2
 
 const isTyping = (t: EventTarget | null) => t instanceof HTMLElement && !!t.closest('input, textarea, select, [contenteditable="true"]')
 
+// DEV only, until the Cloud / Atlas switch arrives: ?view=atlas on the page URL.
+const devView = import.meta.env.DEV && new URLSearchParams(window.location.search).get('view') === 'atlas' ? 'atlas' : 'cloud'
+
 export function GraphView({ focus }: { focus?: string }) {
   const { items, links } = useAppState()
   const [query, setQuery] = useState('')
@@ -123,7 +126,7 @@ export function GraphView({ focus }: { focus?: string }) {
           <p>Link notes with [[double brackets]] and they appear here as a living map.</p>
         </div>
       ) : (
-        <GraphCanvas ref={handle} data={data} selectedId={selected} onSelect={setSelected} onOpen={open} highlight={highlight} />
+        <GraphCanvas ref={handle} data={data} selectedId={selected} onSelect={setSelected} onOpen={open} highlight={highlight} view={devView} />
       )}
 
       <div className="graph-search-wrap">
