@@ -55,14 +55,23 @@ export function cloudStats(nodes: CloudNode[]): CloudStats {
 /** The turn at a given time; `amp` (0..1) fades the sway in and out. */
 export const swayAngle = (time: number, amp: number) => Math.sin(time * SWAY_SPEED) * SWAY * amp
 
-/** Where a world point lands at view scale 1 and offset 0, and its perspective factor. */
-function turn(x: number, y: number, zr: number, s: CloudStats, angle: number, amp: number) {
-  const cos = Math.cos(angle), sin = Math.sin(angle)
-  const z = zr * s.radius * 0.9, dx = x - s.mx
-  const across = dx * cos + z * sin, depth = -dx * sin + z * cos
-  const k = (300 / Math.max(120, s.radius)) * 1.4 / DEPTH_RANGE
-  const f = 1 + amp * (Math.max(0.6, Math.min(1.7, 1 + depth * k)) - 1)
-  return { x: s.mx + across * f, y: s.my + (y - s.my) * f, f }
+/** A turn of the cloud worked out once per frame: the trig and perspective shared by every point. */
+interface Turn { s: CloudStats; cos: number; sin: number; k: number; amp: number }
+const turning = (s: CloudStats, angle: number, amp: number): Turn =>
+  ({ s, cos: Math.cos(angle), sin: Math.sin(angle), k: ((300 / Math.max(120, s.radius)) * 1.4) / DEPTH_RANGE, amp })
+
+/** A projected point; reused as scratch so a frame allocates nothing per node. */
+export interface Point { x: number; y: number; f: number }
+const scratch: Point = { x: 0, y: 0, f: 1 }
+
+/** Where a world point lands at view scale 1 and offset 0, and its perspective factor, written into `out`. */
+function turnInto(t: Turn, x: number, y: number, zr: number, out: Point) {
+  const z = zr * t.s.radius * 0.9, dx = x - t.s.mx
+  const across = dx * t.cos + z * t.sin, depth = -dx * t.sin + z * t.cos
+  const f = 1 + t.amp * (Math.max(0.6, Math.min(1.7, 1 + depth * t.k)) - 1)
+  out.x = t.s.mx + across * f
+  out.y = t.s.my + (y - t.s.my) * f
+  out.f = f
 }
 
 /** Screen positions and perspective factors, reused between frames. */
@@ -70,46 +79,55 @@ export interface Placed { sx: Float64Array; sy: Float64Array; f: Float64Array }
 export const newPlaced = (count: number): Placed => ({ sx: new Float64Array(count), sy: new Float64Array(count), f: new Float64Array(count) })
 
 export function place(nodes: CloudNode[], looks: Look[], s: CloudStats, view: View, angle: number, amp: number, time: number, drift: boolean, out: Placed) {
+  const t = turning(s, angle, amp)
   for (let i = 0; i < nodes.length; i++) {
     const n = nodes[i], look = looks[i]
-    const p = turn(n.x, n.y, look.zr, s, angle, amp)
-    let x = p.x * view.scale + view.x, y = p.y * view.scale + view.y
+    turnInto(t, n.x, n.y, look.zr, scratch)
+    let x = scratch.x * view.scale + view.x, y = scratch.y * view.scale + view.y
     if (drift && n.node.kind === 'item') {
       x += Math.sin(time * 0.35 + look.phase) * DRIFT
       y += Math.cos(time * 0.29 + look.phase * 1.3) * DRIFT
     }
-    out.sx[i] = x; out.sy[i] = y; out.f[i] = p.f
+    out.sx[i] = x; out.sy[i] = y; out.f[i] = scratch.f
   }
 }
 
-/** Project one world point (dust, a region centre) the same way as the nodes. */
-export function placePoint(x: number, y: number, zr: number, s: CloudStats, view: View, angle: number, amp: number) {
-  const p = turn(x, y, zr, s, angle, amp)
-  return { x: p.x * view.scale + view.x, y: p.y * view.scale + view.y, f: p.f }
+/** Project one world point (dust, a region centre) the same way as the nodes, into `out` (a new point if omitted). */
+export function placePoint(x: number, y: number, zr: number, s: CloudStats, view: View, angle: number, amp: number, out: Point = { x: 0, y: 0, f: 1 }): Point {
+  turnInto(turning(s, angle, amp), x, y, zr, out)
+  out.x = out.x * view.scale + view.x
+  out.y = out.y * view.scale + view.y
+  return out
 }
 
 /** On-screen radius: grows gently with zoom and with nearness. */
 export const sizeOf = (look: Look, scale: number, f: number) => look.radius * Math.pow(scale, 0.45) * f
 
+/** The part of the canvas the cloud is framed in (the canvas less any panel strips that cover it). */
+export interface Frame { x: number; y: number; w: number; h: number }
+
 /**
- * The view that frames every node with a 10 % margin on each side. With the sway on, the frame covers the cloud
- * at both ends of the turn, so nothing leaves the screen as it swings.
+ * The view that frames every node with a 10 % margin on each side, centred in `frame`. With the sway on, the
+ * frame covers the cloud at both ends of the turn, so nothing leaves the screen as it swings.
  */
-export function fitView(nodes: CloudNode[], looks: Look[], s: CloudStats, w: number, h: number, swaying: boolean, margin = 0.1): View {
-  if (!nodes.length || w <= 0 || h <= 0) return { x: w / 2, y: h / 2, scale: 1 }
+export function fitView(nodes: CloudNode[], looks: Look[], s: CloudStats, frame: Frame, swaying: boolean, margin = 0.1): View {
+  const { w, h } = frame
+  const cx = frame.x + w / 2, cy = frame.y + h / 2
+  if (!nodes.length || w <= 0 || h <= 0) return { x: cx, y: cy, scale: 1 }
   let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity
   for (const angle of swaying ? [-SWAY, 0, SWAY] : [0]) {
+    const t = turning(s, angle, swaying ? 1 : 0)
     for (let i = 0; i < nodes.length; i++) {
-      const p = turn(nodes[i].x, nodes[i].y, looks[i].zr, s, angle, swaying ? 1 : 0)
-      if (p.x < minX) minX = p.x
-      if (p.x > maxX) maxX = p.x
-      if (p.y < minY) minY = p.y
-      if (p.y > maxY) maxY = p.y
+      turnInto(t, nodes[i].x, nodes[i].y, looks[i].zr, scratch)
+      if (scratch.x < minX) minX = scratch.x
+      if (scratch.x > maxX) maxX = scratch.x
+      if (scratch.y < minY) minY = scratch.y
+      if (scratch.y > maxY) maxY = scratch.y
     }
   }
   const spanX = Math.max(40, maxX - minX), spanY = Math.max(40, maxY - minY)
   const scale = Math.min(MAX_FIT_SCALE, (w * (1 - 2 * margin)) / spanX, (h * (1 - 2 * margin)) / spanY)
-  return { x: w / 2 - ((minX + maxX) / 2) * scale, y: h / 2 - ((minY + maxY) / 2) * scale, scale }
+  return { x: cx - ((minX + maxX) / 2) * scale, y: cy - ((minY + maxY) / 2) * scale, scale }
 }
 
 /** The view that brings what is now at screen point (sx, sy) to the middle of the canvas, at a given scale. */

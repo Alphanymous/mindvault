@@ -1,8 +1,9 @@
-import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react'
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef } from 'react'
 import { createCloudLayout, type CloudLayout } from '../core/cloudLayout'
-import { regionHue, regionRgb } from '../core/clusters'
+import { regionHues, regionOfFolder, regionRgb } from '../core/clusters'
 import { hash01 } from '../core/hash'
 import type { GraphData, GraphNode } from '../core/types'
+import { useAppState } from '../data/store'
 import {
   AMBIENT_LIMIT,
   LITE_LIMIT,
@@ -19,6 +20,8 @@ import {
   swayAngle,
   unplace,
   type CloudStats,
+  type Frame,
+  type Point,
   type Look,
   type Placed,
   type View,
@@ -72,6 +75,10 @@ const TAP_MS = 380
 const SIGNALS = 24
 /** Floating panels a label must never sit under, looked up in the page around the canvas. */
 const PANELS = '.graph-search-wrap, .atlas, .graph-settings, .graph-panel, .graph-card, .graph-zoom, .graph-options-btn, .galaxy-cta'
+/** The phone's bottom tab bar, a panel only where it lies over the canvas. */
+const TAB_BAR = '.tabbar'
+/** Clearance around panels; also covers the card's 8 px pop-in offset while it animates. */
+const PANEL_PAD = 8
 /** Each label size has one font, so placement measures what drawLabelPill / drawRegionName draw. */
 const fontForSize = (size: number) =>
   size === LABEL_SIZE.region ? regionFont(size) : pillFont(size, size === LABEL_SIZE.strong || size === LABEL_SIZE.hub)
@@ -84,6 +91,11 @@ interface Scene {
   layout: CloudLayout
   looks: Look[]
   colors: RGB[]
+  /** Per node, worked out once per data or theme change: its colour as CSS and its glow sprite. */
+  css: string[]
+  sprites: HTMLCanvasElement[]
+  /** Every node, busiest first (neighbour lists are sorted the same way). */
+  ranked: Int32Array
   regionOfNode: Int32Array
   regionNames: string[]
   regionColors: RGB[]
@@ -118,7 +130,7 @@ type DevWindow = Window & { __graphSettledAt?: number; __graphLabels?: PlacedLab
 function emptyScene(): Scene {
   return {
     layout: createCloudLayout({ nodes: [], edges: [] }),
-    looks: [], colors: [], regionOfNode: new Int32Array(0), regionNames: [], regionColors: [], neighbours: [], edgeGroups: [],
+    looks: [], colors: [], css: [], sprites: [], ranked: new Int32Array(0), regionOfNode: new Int32Array(0), regionNames: [], regionColors: [], neighbours: [], edgeGroups: [],
     placed: newPlaced(0), order: [], stats: { mx: 0, my: 0, radius: 1 }, angle: 0,
     highlight: null, selectedId: undefined, selected: -1, hover: -1,
     view: { x: 0, y: 0, scale: 1 }, fitScale: 1, autoFit: true, fitted: false, flight: null,
@@ -139,6 +151,11 @@ export const GraphCanvas = forwardRef<GraphHandle, Props>(function GraphCanvas({
   const kickRef = useRef<(stale?: boolean) => void>(() => {})
   /** Floating panels over the canvas, in canvas coordinates; read by the frame loop when the page changes. */
   const obstaclesRef = useRef<Box[]>([])
+  // Region colours come from every live note, never the filtered graph, so they match the Atlas list and Clusters.
+  const { items } = useAppState()
+  const liveRegions = useMemo(() => [...new Set(items.filter((i) => !i.deleted).map((i) => regionOfFolder(i.folder)))].sort().join('\n'), [items])
+  const liveRegionsRef = useRef(liveRegions)
+  liveRegionsRef.current = liveRegions
 
   /** Colours and edge groups depend on the data and on the theme (tags and unwritten links use theme colours). */
   const restyle = () => {
@@ -151,8 +168,11 @@ export const GraphCanvas = forwardRef<GraphHandle, Props>(function GraphCanvas({
       return names.get(n.region)!
     })
     sc.regionNames = [...names.keys()]
-    sc.regionColors = sc.regionNames.map((r) => regionRgb(regionHue(r)))
+    const hues = regionHues([...sc.regionNames, ...liveRegionsRef.current.split('\n').filter(Boolean)])
+    sc.regionColors = sc.regionNames.map((r) => regionRgb(hues.get(r)!))
     sc.colors = sc.layout.nodes.map((n, i) => (sc.regionOfNode[i] >= 0 ? sc.regionColors[sc.regionOfNode[i]] : kindColor(pal, n.node)))
+    sc.css = sc.colors.map((c) => `rgb(${c[0]},${c[1]},${c[2]})`)
+    sc.sprites = sc.colors.map((c) => glowSprite(c))
     // Lines take the colour of the node they leave from; direct [[links]] a little brighter.
     const groups = new Map<string, EdgeGroup>()
     for (const e of sc.layout.edges) {
@@ -178,16 +198,23 @@ export const GraphCanvas = forwardRef<GraphHandle, Props>(function GraphCanvas({
   const fitTarget = (): View => {
     const sc = sceneRef.current
     const { w, h } = sizeRef.current
-    let left = 0, right = 0
+    let left = 0, right = 0, top = 0, bottom = 0
     for (const o of obstaclesRef.current) {
-      if (o.h < h * 0.25) continue
-      if (o.x + o.w / 2 < w / 2) left = Math.max(left, o.x + o.w)
-      else right = Math.max(right, w - o.x)
+      if (o.w >= w * 0.6) {
+        // a strip across the canvas (the search bar on a phone, a tab bar over the canvas)
+        if (o.y + o.h / 2 < h / 2) top = Math.max(top, o.y + o.h)
+        else bottom = Math.max(bottom, h - o.y)
+      } else if (o.h >= h * 0.25) {
+        if (o.x + o.w / 2 < w / 2) left = Math.max(left, o.x + o.w)
+        else right = Math.max(right, w - o.x)
+      }
     }
     if (w - left - right < Math.max(420, w * 0.55)) left = right = 0
-    const v = fitView(sc.layout.nodes, sc.looks, cloudStats(sc.layout.nodes), w - left - right, h, sc.spin && ambientOn())
+    if (h - top - bottom < h * 0.6) top = bottom = 0
+    const frame: Frame = { x: left, y: top, w: w - left - right, h: h - top - bottom }
+    const v = fitView(sc.layout.nodes, sc.looks, cloudStats(sc.layout.nodes), frame, sc.spin && ambientOn())
     if (sc.layout.nodes.length) sc.fitScale = v.scale
-    return { ...v, x: v.x + left }
+    return v
   }
 
   const flyTo = (to: View) => {
@@ -267,6 +294,7 @@ export const GraphCanvas = forwardRef<GraphHandle, Props>(function GraphCanvas({
     let drawMs = 0
     let obstaclesStale = true
     const widths = new Map<string, number>()
+    const dustPoint: Point = { x: 0, y: 0, f: 1 }
 
     const kick = (stale = false) => {
       dirty = true
@@ -318,14 +346,25 @@ export const GraphCanvas = forwardRef<GraphHandle, Props>(function GraphCanvas({
     }
     document.fonts?.addEventListener('loadingdone', onFonts)
 
+    /**
+     * Panels around the canvas, padded by PANEL_PAD: getBoundingClientRect includes transforms, so a panel still
+     * playing its entrance (the card pops in from 8 px lower) reads a little off until it ends, when we read again.
+     * The tab bar counts only where it covers the canvas.
+     */
     const readObstacles = () => {
       const cr = canvas.getBoundingClientRect()
-      obstaclesRef.current = [...page.querySelectorAll(PANELS)].flatMap((el) => {
+      const els = [...page.querySelectorAll(PANELS), ...document.querySelectorAll(TAB_BAR)]
+      obstaclesRef.current = els.flatMap((el) => {
         const r = el.getBoundingClientRect()
-        return r.width && r.height ? [{ x: r.left - cr.left, y: r.top - cr.top, w: r.width, h: r.height }] : []
+        const x = r.left - cr.left - PANEL_PAD, y = r.top - cr.top - PANEL_PAD, w = r.width + 2 * PANEL_PAD, h = r.height + 2 * PANEL_PAD
+        const covers = r.width && r.height && x < cr.width && y < cr.height && x + w > 0 && y + h > 0
+        return covers ? [{ x, y, w, h }] : []
       })
       obstaclesStale = false
     }
+    const onSettle = () => kick(true)
+    page.addEventListener('animationend', onSettle, true)
+    page.addEventListener('transitionend', onSettle, true)
     const measure = (text: string, size: number) => {
       const key = size + '|' + text
       let width = widths.get(key)
@@ -461,7 +500,7 @@ export const GraphCanvas = forwardRef<GraphHandle, Props>(function GraphCanvas({
         g.fillStyle = 'rgb(190,205,225)'
         const R = sc.stats.radius
         for (const d of dust) {
-          const p = placePoint(sc.stats.mx + Math.cos(d.angle) * d.r * R, sc.stats.my + Math.sin(d.angle) * d.r * R, d.zr, sc.stats, sc.view, sc.angle, sc.amp)
+          const p = placePoint(sc.stats.mx + Math.cos(d.angle) * d.r * R, sc.stats.my + Math.sin(d.angle) * d.r * R, d.zr, sc.stats, sc.view, sc.angle, sc.amp, dustPoint)
           if (p.x < -4 || p.x > w + 4 || p.y < -4 || p.y > h + 4) continue
           g.globalAlpha = d.alpha
           const s = d.size * p.f
@@ -556,7 +595,15 @@ export const GraphCanvas = forwardRef<GraphHandle, Props>(function GraphCanvas({
         order.length = 0
         for (let i = 0; i < count; i++) order.push(i)
       }
-      if (sc.amp > 0) order.sort((a, b) => f[a] - f[b])
+      // Far to near. Depth changes little between frames, so insertion sort on last frame's order is nearly O(n).
+      if (sc.amp > 0) {
+        for (let k = 1; k < count; k++) {
+          const v = order[k], fv = f[v]
+          let j = k - 1
+          while (j >= 0 && f[order[j]] > fv) { order[j + 1] = order[j]; j-- }
+          order[j + 1] = v
+        }
+      }
       const lite = count > LITE_LIMIT && zoom < 2
       const visibleNode = (i: number, r: number) => sx[i] > -r * 4 && sx[i] < w + r * 4 && sy[i] > -r * 4 && sy[i] < h + r * 4
       for (const i of order) {
@@ -566,30 +613,34 @@ export const GraphCanvas = forwardRef<GraphHandle, Props>(function GraphCanvas({
         if (!visibleNode(i, r) || (low && kind === 'item' && r < 3 && i !== focus)) continue
         const halo = r * (kind === 'folder' ? 2.6 : 3.4) * (i === focus ? 1.4 : 1)
         g.globalAlpha = (dimmed(i) ? 0.15 : 1) * (kind === 'tag' ? 0.5 : 0.8)
-        g.drawImage(glowSprite(sc.colors[i]), sx[i] - halo, sy[i] - halo, halo * 2, halo * 2)
+        g.drawImage(sc.sprites[i], sx[i] - halo, sy[i] - halo, halo * 2, halo * 2)
       }
       g.globalCompositeOperation = 'source-over'
       for (const i of order) {
         const n = nodes[i].node
         const r = radius(i)
         if (!visibleNode(i, r)) continue
-        const col = sc.colors[i]
-        g.globalAlpha = dimmed(i) ? 0.15 : 1
+        const css = sc.css[i]
+        const alpha = dimmed(i) ? 0.15 : 1
+        g.globalAlpha = alpha
         if (lite && n.kind === 'item') {
           const side = Math.max(1.6, r)
-          g.fillStyle = `rgb(${col[0]},${col[1]},${col[2]})`
+          g.fillStyle = css
           g.fillRect(sx[i] - side / 2, sy[i] - side / 2, side, side)
-        } else if (n.kind === 'item') drawItemShape(g, n.itemType ?? 'note', sx[i], sy[i], r, col)
+        } else if (n.kind === 'item') drawItemShape(g, n.itemType ?? 'note', sx[i], sy[i], r, css)
         else if (n.kind === 'folder' || n.kind === 'tag') {
-          g.fillStyle = `rgba(${col[0]},${col[1]},${col[2]},${n.kind === 'folder' ? 0.9 : 0.55})`
+          g.fillStyle = css
+          g.globalAlpha = alpha * (n.kind === 'folder' ? 0.9 : 0.55)
           g.beginPath()
           g.arc(sx[i], sy[i], r * (n.kind === 'folder' ? 0.75 : 0.6), 0, Math.PI * 2)
           g.fill()
-          g.strokeStyle = `rgba(${col[0]},${col[1]},${col[2]},0.6)`
+          g.strokeStyle = css
+          g.globalAlpha = alpha * 0.6
           g.lineWidth = Math.max(1, r * 0.16)
           g.beginPath()
           g.arc(sx[i], sy[i], r, 0, Math.PI * 2)
           g.stroke()
+          g.globalAlpha = alpha
           g.fillStyle = 'rgba(255,252,248,0.92)'
           g.beginPath()
           g.arc(sx[i], sy[i], Math.max(1, r * 0.25), 0, Math.PI * 2)
@@ -597,7 +648,8 @@ export const GraphCanvas = forwardRef<GraphHandle, Props>(function GraphCanvas({
         } else {
           // an unwritten link: a dashed ring
           g.setLineDash([2.5, 3])
-          g.strokeStyle = `rgba(${col[0]},${col[1]},${col[2]},0.8)`
+          g.strokeStyle = css
+          g.globalAlpha = alpha * 0.8
           g.lineWidth = 1
           g.beginPath()
           g.arc(sx[i], sy[i], Math.max(3, r * 1.5), 0, Math.PI * 2)
@@ -605,8 +657,8 @@ export const GraphCanvas = forwardRef<GraphHandle, Props>(function GraphCanvas({
           g.setLineDash([])
         }
         if (hl && hl.has(i) && i !== sc.selected) {
-          g.globalAlpha = 0.8
-          g.strokeStyle = `rgba(${col[0]},${col[1]},${col[2]},0.9)`
+          g.globalAlpha = 0.72
+          g.strokeStyle = css
           g.lineWidth = 1.2
           g.beginPath()
           g.arc(sx[i], sy[i], r * 1.8 + 4, 0, Math.PI * 2)
@@ -638,7 +690,7 @@ export const GraphCanvas = forwardRef<GraphHandle, Props>(function GraphCanvas({
       // labels: one collision check for all of them, clear of each other, the edges and the panels
       g.globalCompositeOperation = 'source-over'
       const requests = labelRequests(
-        { nodes, sx, sy, radius, w, h, focus, selected: sc.selected, neighbours: sc.neighbours, highlight: hl, zoom, compact: compactMode, regions: regionsOnScreen, obstacles: obstaclesRef.current },
+        { nodes, sx, sy, radius, w, h, focus, selected: sc.selected, neighbours: sc.neighbours, ranked: sc.ranked, highlight: hl, zoom, compact: compactMode, regions: regionsOnScreen, obstacles: obstaclesRef.current },
         measure,
       )
       const labels = placeLabels(requests, measure, { w, h }, obstaclesRef.current)
@@ -796,6 +848,8 @@ export const GraphCanvas = forwardRef<GraphHandle, Props>(function GraphCanvas({
       io.disconnect()
       document.removeEventListener('visibilitychange', onVisibility)
       document.fonts?.removeEventListener('loadingdone', onFonts)
+      page.removeEventListener('animationend', onSettle, true)
+      page.removeEventListener('transitionend', onSettle, true)
       canvas.removeEventListener('pointerdown', down)
       canvas.removeEventListener('pointermove', move)
       canvas.removeEventListener('pointerup', up)
@@ -822,6 +876,10 @@ export const GraphCanvas = forwardRef<GraphHandle, Props>(function GraphCanvas({
       sc.neighbours[e.a].push(e.b)
       sc.neighbours[e.b].push(e.a)
     }
+    // Busiest first, once per layout, so labels never sort in the frame loop.
+    const busier = (a: number, b: number) => layout.nodes[b].degree - layout.nodes[a].degree || a - b
+    for (const list of sc.neighbours) list.sort(busier)
+    sc.ranked = Int32Array.from(layout.nodes.keys()).sort(busier)
     sc.placed = newPlaced(layout.nodes.length)
     sc.order = []
     sc.signals = []
@@ -851,6 +909,13 @@ export const GraphCanvas = forwardRef<GraphHandle, Props>(function GraphCanvas({
     sc.reveal = idx >= 0 ? { zoom: first } : null
     kickRef.current(true)
   }, [selectedId, calm])
+
+  // A folder added or emptied elsewhere can change which hue each region gets.
+  useEffect(() => {
+    restyle()
+    kickRef.current()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [liveRegions])
 
   useEffect(() => {
     syncHighlight()

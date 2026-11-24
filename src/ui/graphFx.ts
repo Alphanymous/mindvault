@@ -300,8 +300,7 @@ export function drawRegionName(g: CanvasRenderingContext2D, text: string, x: num
 }
 
 /** Item kinds by shape: dot note, ring web page, double ring PDF, cross prompt, square file. */
-export function drawItemShape(g: CanvasRenderingContext2D, type: GraphNode['itemType'], x: number, y: number, r: number, col: RGB) {
-  const solid = `rgb(${col[0]},${col[1]},${col[2]})`
+export function drawItemShape(g: CanvasRenderingContext2D, type: GraphNode['itemType'], x: number, y: number, r: number, solid: string) {
   if (type === 'web' || type === 'pdf') {
     g.lineWidth = Math.max(1, r * 0.38)
     g.strokeStyle = solid
