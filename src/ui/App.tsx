@@ -17,6 +17,7 @@ import { Home } from './Home'
 import { Icon } from './Icon'
 import { ItemView } from './ItemView'
 import { Library } from './Library'
+import { MoreSheet } from './MoreSheet'
 import { PairPage } from './PairPage'
 import { Palette } from './Palette'
 import { PromptsPage } from './PromptsPage'
@@ -44,6 +45,7 @@ export function App() {
   const [palette, setPalette] = useState<string | null>(null)
   const [capture, setCapture] = useState<CaptureState | null>(null)
   const [help, setHelp] = useState(false)
+  const [more, setMore] = useState(false)
   const toasts = useToasts()
 
   // theme: always write a concrete data-theme so the stylesheet needs no media query
@@ -79,7 +81,7 @@ export function App() {
       const mod = e.ctrlKey || e.metaKey
       if (mod && e.key.toLowerCase() === 'k') { e.preventDefault(); setPalette((p) => (p === null ? '' : null)); return }
       if (mod && e.key.toLowerCase() === 'n') { e.preventDefault(); actionsRef.current.openCapture(); return }
-      if (e.key === 'Escape') { setPalette(null); setCapture(null); setHelp(false); return }
+      if (e.key === 'Escape') { setPalette(null); setCapture(null); setHelp(false); setMore(false); return }
       if (mod || e.altKey || isTyping(e.target)) return
       const action = seq.feed(e.key, Date.now())
       if (action) {
@@ -207,6 +209,7 @@ export function App() {
     [collections, live, seen],
   )
   const freshCount = collectionCounts.new ?? 0
+  const moreActive = route.name === 'prompts' || route.name === 'clusters' || route.name === 'settings'
   const recent = usage.recent.map((id) => byId.get(id)).filter((i): i is Item => !!i).slice(0, 5)
 
   return (
@@ -232,7 +235,7 @@ export function App() {
           <h5>Smart views</h5>
           <div className="smart-chips">
             {collections.map((c) => (
-              <a key={c.id} href={href({ name: 'library', c: c.id })} className={`smart-chip ${route.name === 'library' && route.c === c.id ? 'on' : ''}`}>
+              <a key={c.id} href={href({ name: 'library', c: c.id })} className={`smart-chip ${route.name === 'library' && route.c === c.id ? 'on' : ''}`} aria-current={route.name === 'library' && route.c === c.id ? 'page' : undefined}>
                 <Icon name={c.icon} size={13} /> {c.name}
                 {!!collectionCounts[c.id] && <small>{collectionCounts[c.id]}</small>}
               </a>
@@ -245,7 +248,7 @@ export function App() {
             <ul className="recent-list">
               {recent.map((i) => (
                 <li key={i.id}>
-                  <a href={href({ name: 'item', id: i.id })} className={route.name === 'item' && route.id === i.id ? 'on' : ''} data-type={i.type}>
+                  <a href={href({ name: 'item', id: i.id })} className={route.name === 'item' && route.id === i.id ? 'on' : ''} aria-current={route.name === 'item' && route.id === i.id ? 'page' : undefined} data-type={i.type}>
                     <Icon name={TYPE_META[i.type].icon} size={14} /> <span>{i.title}</span>
                   </a>
                 </li>
@@ -272,7 +275,6 @@ export function App() {
       <nav className="tabbar" aria-label="Main">
         <TabLink route={{ name: 'home' }} active={route.name === 'home'} icon="home" label="Home" badge={freshCount} />
         <TabLink route={{ name: 'library' }} active={route.name === 'library' || route.name === 'item'} icon="library" label="Library" />
-        <TabLink route={{ name: 'prompts' }} active={route.name === 'prompts'} icon="prompt" label="Prompts" />
         <button
           className="fab"
           onPointerDown={fabDown}
@@ -286,19 +288,29 @@ export function App() {
           <Icon name="plus" size={24} />
         </button>
         <TabLink route={{ name: 'graph' }} active={route.name === 'graph'} icon="graph" label="Graph" />
-        <button className="tab" onClick={() => setPalette('')}><Icon name="search" size={21} /><span>Search</span></button>
-        <TabLink route={{ name: 'settings' }} active={route.name === 'settings'} icon="settings" label="Settings" />
+        <button
+          className={`tab ${moreActive ? 'on' : ''}`}
+          onClick={() => setMore(true)}
+          aria-haspopup="dialog"
+          aria-expanded={more}
+          aria-current={moreActive ? 'page' : undefined}
+        >
+          <span className="tab-icon"><Icon name="more" size={21} /></span>
+          <span>More</span>
+        </button>
       </nav>
 
       {palette !== null && <Palette initial={palette} onClose={() => setPalette(null)} actions={actions} />}
       {capture && <Capture initial={capture.text} dictate={capture.dictate} onClose={() => setCapture(null)} />}
       {help && <ShortcutsHelp onClose={() => setHelp(false)} />}
+      {more && <MoreSheet route={route} onClose={() => setMore(false)} onSearch={() => setPalette('')} />}
 
       <div className="toasts" aria-live="polite">
         {toasts.map((t) => (
-          <div key={t.id} className={`toast ${t.kind}`} onClick={() => dismiss(t.id)}>
+          <div key={t.id} className={`toast ${t.kind}`} role={t.kind === 'error' ? 'alert' : undefined}>
             <span>{t.text}</span>
             {t.action && <a href={t.action.href} onClick={() => dismiss(t.id)}>{t.action.label}</a>}
+            <button className="toast-close" onClick={() => dismiss(t.id)} aria-label="Dismiss"><Icon name="x" size={14} /></button>
           </div>
         ))}
       </div>
@@ -308,7 +320,7 @@ export function App() {
 
 function NavLink({ route, active, icon, label, badge }: { route: Route; active: boolean; icon: string; label: string; badge?: number }) {
   return (
-    <a href={href(route)} className={`nav-link ${active ? 'on' : ''}`}>
+    <a href={href(route)} className={`nav-link ${active ? 'on' : ''}`} aria-current={active ? 'page' : undefined}>
       <Icon name={icon} size={18} /> <span>{label}</span>
       {!!badge && <em className="badge">{badge}</em>}
     </a>
@@ -317,7 +329,7 @@ function NavLink({ route, active, icon, label, badge }: { route: Route; active: 
 
 function TabLink({ route, active, icon, label, badge }: { route: Route; active: boolean; icon: string; label: string; badge?: number }) {
   return (
-    <a href={href(route)} className={`tab ${active ? 'on' : ''}`}>
+    <a href={href(route)} className={`tab ${active ? 'on' : ''}`} aria-current={active ? 'page' : undefined}>
       <span className="tab-icon"><Icon name={icon} size={21} />{!!badge && <em className="badge">{badge}</em>}</span>
       <span>{label}</span>
     </a>

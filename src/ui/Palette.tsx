@@ -5,6 +5,7 @@ import { useAppState } from '../data/store'
 import { allCollections, useUsage } from '../data/usage'
 import { filterCommands, makeCommands, type AppActions } from './commands'
 import { Icon } from './Icon'
+import { useModal } from './modal'
 import { go } from './router'
 import { TYPE_META, sortByRecent, useDebounced } from './util'
 
@@ -35,6 +36,9 @@ export function Palette({ onClose, actions, initial = '' }: { onClose(): void; a
   const [sel, setSel] = useState(0)
   const [semantic, setSemantic] = useState<{ q: string; hits: { id: string; score: number }[] }>({ q: '', hits: [] })
   const input = useRef<HTMLInputElement>(null)
+  const overlay = useRef<HTMLDivElement>(null)
+  const dialog = useRef<HTMLDivElement>(null)
+  useModal(overlay, dialog)
   useEffect(() => input.current?.focus(), [])
   const debounced = useDebounced(q, 350)
 
@@ -123,7 +127,6 @@ export function Palette({ onClose, actions, initial = '' }: { onClose(): void; a
     else if (e.key === 'ArrowUp') { e.preventDefault(); setSel((s) => Math.max(0, s - 1)) }
     else if (e.key === 'Enter') { e.preventDefault(); entries[sel]?.run() }
     else if (e.key === 'Escape') onClose()
-    else if (e.key === 'Tab' && !q) { e.preventDefault(); setQ('>') }
   }
 
   const placeholder = { search: 'Search everything…', commands: 'Type a command…', tags: 'Find a tag…', places: 'Find a folder or collection…' }[mode]
@@ -137,8 +140,8 @@ export function Palette({ onClose, actions, initial = '' }: { onClose(): void; a
   const matchCount = entries.length
 
   return (
-    <div className="overlay" onMouseDown={onClose}>
-      <div className="palette glass" onMouseDown={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Search and commands">
+    <div className="overlay" ref={overlay} onMouseDown={onClose}>
+      <div className="palette glass" ref={dialog} onMouseDown={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Search and commands">
         <div className="palette-head">
           <span className="icon-tile"><Icon name="graph" size={17} /></span>
           <h2>Search</h2>
@@ -189,14 +192,14 @@ export function Palette({ onClose, actions, initial = '' }: { onClose(): void; a
               </span>
               {e.badge && <span className="pl-badge">{e.badge}</span>}
               {e.hint && e.key.startsWith('c-') && <kbd className="pl-key">{e.hint}</kbd>}
-              <span className="pl-go"><Icon name="arrow" size={15} /></span>
+              <span className="pl-go" aria-hidden="true"><Icon name="arrow" size={15} /></span>
             </li>
           ))}
         </ul>
         <div className="palette-foot">
           <span className="pl-tip"><kbd>↑↓</kbd> navigate</span>
           <span className="pl-tip"><kbd>↵</kbd> open</span>
-          <span className="pl-tip hide-mobile"><kbd>tab</kbd> commands</span>
+          <span className="pl-tip hide-mobile"><kbd>&gt;</kbd> commands</span>
           <span className="spacer" />
           <span className="pl-indexed"><i /> {indexed.toLocaleString()} items indexed</span>
         </div>

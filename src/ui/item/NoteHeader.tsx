@@ -40,7 +40,7 @@ export function LinkStrip({ backlinks, outgoing, onInspect }: { backlinks: numbe
     <button className="link-strip" onClick={onInspect}>
       <span className="link-strip-icon"><Icon name="link" size={15} /></span>
       <b className="in">{backlinks} backlink{backlinks === 1 ? '' : 's'}</b>
-      <span className="dot-sep">·</span>
+      <span className="dot-sep" aria-hidden="true">·</span>
       <b className="out">{outgoing} outgoing</b>
       <span className="spacer" />
       <span className="inspect">Inspect <Icon name="chevron" size={14} /></span>

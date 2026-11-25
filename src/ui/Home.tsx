@@ -1,4 +1,4 @@
-import { useMemo, type ReactNode } from 'react'
+import { Fragment, useMemo, type ReactNode } from 'react'
 import { applyCollection, BUILTIN_COLLECTIONS } from '../core/collections'
 import { buildGraph } from '../core/links'
 import type { GraphNode, Item } from '../core/types'
@@ -72,10 +72,12 @@ export function Home({ onSearch, onCapture }: { onSearch(): void; onCapture(): v
         <h1><span className="grad-text">{greeting()}</span></h1>
         <p className="sub">
           {counts.map((c, i) => (
-            <a key={c.t} href={href({ name: 'library', type: c.t })} data-type={c.t}>
-              {i > 0 && <span className="dot-sep">·</span>}
-              <b>{c.n}</b> {c.n === 1 ? TYPE_META[c.t].label.toLowerCase() : TYPE_META[c.t].plural.toLowerCase()}
-            </a>
+            <Fragment key={c.t}>
+              {i > 0 && <span className="dot-sep" aria-hidden="true">·</span>}
+              <a href={href({ name: 'library', type: c.t })} data-type={c.t}>
+                <b>{c.n}</b> {c.n === 1 ? TYPE_META[c.t].label.toLowerCase() : TYPE_META[c.t].plural.toLowerCase()}
+              </a>
+            </Fragment>
           ))}
         </p>
         <button className="hero-search" onClick={onSearch}>

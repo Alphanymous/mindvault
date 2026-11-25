@@ -3,6 +3,7 @@ import { captureSignals } from '../core/noteStats'
 import { logError } from '../data/errorLog'
 import { captureFile, captureText, captureImageWithOCR, type CaptureResult, type CaptureStep } from '../import/capture'
 import { Icon } from './Icon'
+import { useModal } from './modal'
 import { toast } from './toast'
 import { useDictation } from './useDictation'
 
@@ -22,6 +23,9 @@ export function Capture({ onClose, initial = '', dictate = false }: { onClose():
   const ta = useRef<HTMLTextAreaElement>(null)
   const fileInput = useRef<HTMLInputElement>(null)
   const cameraInput = useRef<HTMLInputElement>(null)
+  const overlay = useRef<HTMLDivElement>(null)
+  const dialog = useRef<HTMLDivElement>(null)
+  useModal(overlay, dialog)
   const voice = useDictation((chunk) => setText((t) => (t && !t.endsWith(' ') && !t.endsWith('\n') ? t + ' ' : t) + chunk))
 
   useEffect(() => {
@@ -102,8 +106,9 @@ export function Capture({ onClose, initial = '', dictate = false }: { onClose():
   }
 
   return (
-    <div className="overlay" onMouseDown={onClose}>
+    <div className="overlay" ref={overlay} onMouseDown={onClose}>
       <div
+        ref={dialog}
         className={`capture glass ${drag ? 'drag' : ''}`}
         onMouseDown={(e) => e.stopPropagation()}
         onDragOver={(e) => { e.preventDefault(); setDrag(true) }}
@@ -134,6 +139,7 @@ export function Capture({ onClose, initial = '', dictate = false }: { onClose():
         />
           <div className="capture-stats">
             <span className="stat-chip mono">{signals.words} words · {signals.chars} chars</span>
+            {voice.supported && <span className="hold-tip">Hold + to dictate</span>}
           </div>
         </div>
         {found > 0 && (

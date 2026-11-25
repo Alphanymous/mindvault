@@ -1,10 +1,15 @@
+import { useRef } from 'react'
 import { SHORTCUT_HELP } from '../core/keys'
 import { Icon } from './Icon'
+import { useModal } from './modal'
 
 export function ShortcutsHelp({ onClose }: { onClose(): void }) {
+  const overlay = useRef<HTMLDivElement>(null)
+  const dialog = useRef<HTMLDivElement>(null)
+  useModal(overlay, dialog)
   return (
-    <div className="overlay" onMouseDown={onClose}>
-      <div className="capture glass" onMouseDown={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Keyboard shortcuts">
+    <div className="overlay" ref={overlay} onMouseDown={onClose}>
+      <div className="capture glass" ref={dialog} onMouseDown={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Keyboard shortcuts">
         <div className="capture-head">
           <h2>Keyboard shortcuts</h2>
           <button className="icon-btn" onClick={onClose} aria-label="Close"><Icon name="x" /></button>
